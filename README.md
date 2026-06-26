@@ -96,6 +96,19 @@ double-init).
 > package the absolute path is `/usr/lib/<triplet>/librobotops_trace_cpp_autoinit.so`
 > (or `/opt/ros/${ROS_DISTRO}/lib/...`); use the path emitted by your install.
 
+> **The core ships as a shared library** (`librobotops_trace_cpp.so`), and it
+> **must** be — this is a hard requirement, not a packaging convenience (ROB-439).
+> The core holds *process-global* tracer state: the thread-local active-span stack
+> and the global span processor/exporter that `init()` publishes. The auto-init
+> shim above and every integration library link the core; only a single shared
+> `.so` gives them **one** shared copy of that state at runtime. If the core were
+> linked statically into each, each would get its *own* tracer — auto-init's
+> `init()` would be invisible to the app, and spans opened in different libraries
+> would not nest into one trace. `BUILD_SHARED_LIBS` therefore defaults **ON** on
+> both build paths. The public API keeps default ELF visibility so the whole
+> `robotops::` surface (and that single global-state definition) is exported from
+> the `.so`.
+
 ### Manual `SpanGuard` with attributes, status, and events
 
 ```cpp
@@ -233,9 +246,20 @@ The core must keep building without ROS. CI enforces this with the `cmake-standa
 cmake -B build -S . -DROBOTOPS_TRACE_STANDALONE=ON
 cmake --build build
 ./build/robotops_trace_version_check   # link + run smoke check
-./build/robotops_trace_tests           # the full SDK-core test suite (10 cases)
+./build/robotops_trace_tests           # the full SDK-core test suite
+ctest --test-dir build --output-on-failure   # + the shared-lib sharing proofs
 # or: just standalone
 ```
+
+Because the core is shared by default (ROB-439), `ctest` also runs the
+cross-DSO sharing proofs: the **`LD_PRELOAD`** auto-init round-trip
+(`robotops_trace_autoinit_preload` / `_optout`, ROB-421) and the **multi-lib
+nesting** test (`robotops_trace_multilib_nesting`) — two separate shared libs that
+each link the core and prove a span opened in one nests under a span opened in the
+other via the shared thread-local stack. (These two checks are Linux-only: they
+rely on `LD_PRELOAD`/`ELF`; macOS uses `DYLD_INSERT_LIBRARIES`.) Configure with
+`-DBUILD_SHARED_LIBS=OFF` to force a static core for niche embedding, but then the
+cross-DSO sharing guarantee no longer holds and those tests are skipped.
 
 The standalone path requires libcurl development headers (`libcurl4-openssl-dev`
 on Debian/Ubuntu; `brew install curl` / the macOS SDK provides it locally).

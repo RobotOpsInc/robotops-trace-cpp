@@ -15,6 +15,20 @@ project(robotops_trace_cpp VERSION 0.1.0 LANGUAGES CXX)
 option(ROBOTOPS_TRACE_STANDALONE
   "Build the core library with plain CMake, without ament/ROS" OFF)
 
+# ROB-439: the core MUST be a SHARED library. It holds process-global tracer
+# state — the thread-local active-span stack (src/detail/thread_context.cpp) and
+# the global span processor/exporter published by init() (src/global.cpp). The
+# LD_PRELOAD auto-init shim (ROB-421) and every integration lib link the core; if
+# each statically linked it, each would get its OWN copy of that state, so
+# auto-init could not share context and spans could not nest across libraries. A
+# single shared librobotops_trace_cpp.so gives every DSO in the process ONE copy
+# of the global state, resolved at runtime. Default ON on BOTH build paths (it is
+# also the ament/.deb convention); -DBUILD_SHARED_LIBS=OFF can still force a
+# static build for niche embedding, but then the cross-DSO sharing guarantee — and
+# the preload/multi-lib ctests gated on it below — no longer hold.
+option(BUILD_SHARED_LIBS
+  "Build robotops_trace_cpp as a shared .so (required for shared tracer state)" ON)
+
 # C++17 required for std::string_view.
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +49,12 @@ find_package(Threads REQUIRED)
 # ============================================================================
 # Core library (identical in both build modes)
 # ============================================================================
+# No explicit STATIC/SHARED: the library type follows BUILD_SHARED_LIBS, which
+# defaults ON (above), so this is a SHARED librobotops_trace_cpp.so on both the
+# ament/.deb path and the standalone path (ROB-439). Public API symbols keep
+# DEFAULT ELF visibility (no -fvisibility=hidden), so the whole robotops:: surface
+# — and crucially the single definition of the process-global tracer state — is
+# exported from the .so and resolves to ONE instance across every linking DSO.
 add_library(${PROJECT_NAME}
   src/version.cpp
   src/span.cpp
@@ -60,9 +80,9 @@ target_include_directories(${PROJECT_NAME}
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
-# Position-independent so the static-core build can still be linked into the
-# auto-init shared shim (ROB-421); a no-op when BUILD_SHARED_LIBS already makes
-# the core a PIC shared object (the ament/.deb default).
+# Position-independent code. Redundant for the default shared build (a .so is
+# always PIC) but kept so an opt-in -DBUILD_SHARED_LIBS=OFF static core can still
+# be linked into the auto-init shared shim (ROB-421) without a PIC relink error.
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # libcurl + threads are implementation details, so link them PRIVATE.
@@ -157,6 +177,31 @@ if(ROBOTOPS_TRACE_STANDALONE)
     set_tests_properties(robotops_trace_autoinit_optout PROPERTIES
       ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:${PROJECT_NAME}_autoinit>;ROBOTOPS_TRACE_AUTOINIT=0"
       PASS_REGULAR_EXPRESSION "active=0")
+
+    # ROB-439: multi-lib nesting proof. Two SEPARATE shared libs, each linking the
+    # core .so, opening a span apiece; one exe loads both. The spans only share a
+    # trace_id / nest if all three DSOs resolve to ONE copy of the core's
+    # thread-local span stack — i.e. the core is a single shared object. Same
+    # BUILD_SHARED_LIBS gate as the preload tests (a static core would not share
+    # the stack and the test would, correctly, fail).
+    add_library(multilib_a SHARED test/multilib_a.cpp)
+    target_include_directories(multilib_a PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    target_link_libraries(multilib_a PRIVATE ${PROJECT_NAME})
+
+    add_library(multilib_b SHARED test/multilib_b.cpp)
+    target_include_directories(multilib_b PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    target_link_libraries(multilib_b PRIVATE ${PROJECT_NAME})
+
+    add_executable(robotops_trace_multilib test/multilib_main.cpp)
+    target_include_directories(robotops_trace_multilib
+      PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    target_link_libraries(robotops_trace_multilib
+      PRIVATE ${PROJECT_NAME} multilib_a multilib_b)
+
+    add_test(NAME robotops_trace_multilib_nesting
+      COMMAND robotops_trace_multilib)
+    set_tests_properties(robotops_trace_multilib_nesting PROPERTIES
+      PASS_REGULAR_EXPRESSION "MULTILIB SHARED-STATE OK")
   endif()
 
   return()
@@ -191,13 +236,14 @@ endif()
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-# The core links libcurl PRIVATE, but as a STATIC lib the curl dependency rides
-# on the exported target's link interface ($<LINK_ONLY:CURL::libcurl>). Export
-# CURL as a transitive dependency so downstream find_package(robotops_trace_cpp)
-# resolves the CURL::libcurl IMPORTED target without each consumer having to call
-# find_package(CURL) itself. The CONFIG_EXTRAS below re-finds CURL in the
-# installed Config for the same reason (belt-and-suspenders for FindCURL-style
-# system deps).
+# The core links libcurl PRIVATE. As the default SHARED .so (ROB-439) curl is
+# fully resolved inside librobotops_trace_cpp.so and does not leak onto the
+# exported link interface; we still export CURL as a transitive dependency as
+# belt-and-suspenders so a downstream find_package(robotops_trace_cpp) resolves
+# the CURL::libcurl IMPORTED target without each consumer calling find_package(CURL)
+# itself (and so an opt-in static -DBUILD_SHARED_LIBS=OFF build, where curl DOES
+# ride the interface as $<LINK_ONLY:CURL::libcurl>, still links). The CONFIG_EXTRAS
+# below re-finds CURL in the installed Config for the same reason.
 ament_export_dependencies(CURL)
 
 ament_package(CONFIG_EXTRAS "cmake/robotops_trace_cpp-extras.cmake")

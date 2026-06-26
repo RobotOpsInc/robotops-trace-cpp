@@ -5,6 +5,30 @@ Changelog for package robotops_trace_cpp
 Forthcoming
 -----------
 
+* Ship the C++ core as a **shared library** (ROB-439). ``librobotops_trace_cpp``
+  now builds and installs as ``librobotops_trace_cpp.so`` (``BUILD_SHARED_LIBS``
+  defaults **ON** on both the ament/.deb and standalone paths) instead of the
+  former static ``.a``. **Why:** the core holds *process-global* tracer state —
+  the thread-local active-span stack (``src/detail/thread_context.cpp``) and the
+  global span processor/exporter published by ``init()`` (``src/global.cpp``). The
+  ``LD_PRELOAD`` auto-init shim (ROB-421) and every integration lib link the core;
+  if each *statically* linked it, each would get its **own** copy of that state, so
+  auto-init could not share context and spans could not nest across libraries. A
+  single shared ``.so`` gives every DSO in the process **one** copy of the global
+  state, resolved at runtime. Public API keeps **default ELF visibility** (no
+  ``-fvisibility=hidden``), so the whole ``robotops::`` surface — and the single
+  definition of the global state — is exported from the ``.so``; the auto-init shim
+  carries ``robotops::init`` as an **undefined** symbol bound to the core ``.so`` at
+  load time (verified with ``nm``/``ldd``). Two new empirical proofs on the
+  standalone path, now that shared is the default: the ROB-421 preload ctests are
+  **ungated** (an ``LD_PRELOAD``ed shim ``init()``s the core and a probe that never
+  calls ``init()`` observes the *same* active tracer — its minted span is exported
+  by the shim-owned processor), and a new **multi-lib nesting** test
+  (``test/multilib_{a,b,main}.cpp``) loads two *separate* shared libs that each link
+  the core and proves a span opened in lib B nests under one opened in lib A (same
+  ``trace_id``, ``B.parent_span_id == A.span_id``) via the shared thread-local
+  stack. ``-Wall -Wextra -Wpedantic`` clean; all existing tests stay green. This
+  unblocks ROB-421 auto-init and multi-integration span nesting.
 * Empirical proof of the Zero-Robot-Impact Invariant (ROB-440 / ROB-418). A
   fault-injection test suite (``test/fault_injection_test.cpp``) points the real
   libcurl OTLP exporter at a **black-hole** loopback endpoint — a socket that
