@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robotops_trace_cpp</name>
+  <version>0.1.0</version>
+  <description>
+    RobotOps distributed-tracing SDK core for C++ (the "SDK + carrier" pivot).
+    Provides the RAII span guard, the ROBOTOPS_TRACE() macro, thread-local trace
+    context, async capture/restore, an OTLP exporter, and RobotOps::init().
+    Transport-agnostic and buildable WITHOUT ROS (plain-CMake fallback) so the
+    core survives beyond any single middleware.
+  </description>
+
+  <maintainer email="kristophm@robotops.com">Kristoph Matthews</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Testing dependencies -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Development container for interactive work
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        # Production: https://apt.robotops.com
+        # Development: https://apt.development.robotops.com
+        APT_REPO_URL: ${APT_REPO_URL:-https://apt.robotops.com}
+        # ROS distro: jazzy (Noble) | humble (Jammy/Jetson). See Dockerfile.
+        ROS_DISTRO: ${ROS_DISTRO:-jazzy}
+    image: robotops_trace_cpp:dev
+    volumes:
+      - .:/workspace/src/robotops_trace_cpp
+      - build_cache:/workspace/build
+      - install_cache:/workspace/install
+    working_dir: /workspace/src/robotops_trace_cpp
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # Build service - builds the package via colcon
+  build:
+    extends: dev
+    command: bash -c "source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash && cd /workspace && colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo --event-handlers console_direct+"
+
+  # Test service - builds + runs tests
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+      args:
+        APT_REPO_URL: ${APT_REPO_URL:-https://apt.robotops.com}
+        ROS_DISTRO: ${ROS_DISTRO:-jazzy}
+    image: robotops_trace_cpp:test
+    volumes:
+      - .:/workspace/src/robotops_trace_cpp
+      - build_cache:/workspace/build
+      - install_cache:/workspace/install
+    working_dir: /workspace/src/robotops_trace_cpp
+    command: bash -c "just ci-inner"
+
+volumes:
+  build_cache:
+  install_cache:

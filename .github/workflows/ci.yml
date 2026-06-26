@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: ['feature/**', '[0-9]*']
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per (ROS distro, Ubuntu codename, arch). ros_distro selects
+        # the ros:<distro>-ros-base base image (Dockerfile ROS_DISTRO build-arg)
+        # + the sourced /opt/ros/<distro> underlay; the runner arch matches the
+        # distro target (spec §2.2):
+        #   - jazzy  → Ubuntu 24.04 Noble, amd64 (primary).
+        #   - humble → Ubuntu 22.04 Jammy, arm64 (the Jetson target).
+        include:
+          - ros_distro: jazzy
+            runner: ubuntu-latest
+          - ros_distro: humble
+            runner: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: test
+          push: false
+          load: true
+          tags: robotops_trace_cpp:ci-${{ matrix.ros_distro }}
+          build-args: |
+            APT_REPO_URL=https://apt.robotops.com
+            ROS_DISTRO=${{ matrix.ros_distro }}
+          cache-from: type=gha,scope=${{ matrix.ros_distro }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.ros_distro }}
+
+      - name: Run CI suite (lint, build, test)
+        run: |
+          docker run --rm \
+            -v $PWD:/workspace/src/robotops_trace_cpp \
+            -v ci-build:/workspace/build \
+            -v ci-install:/workspace/install \
+            -w /workspace/src/robotops_trace_cpp \
+            --entrypoint "" \
+            robotops_trace_cpp:ci-${{ matrix.ros_distro }} \
+            just ci-inner
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.ros_distro }}
+          path: |
+            build/robotops_trace_cpp/test_results/**/*.xml
+            build/robotops_trace_cpp/Testing/**/*
+
+  # The franchise guardrail (spec §2.2): build the core with plain CMake, with
+  # NO ROS sourced, to guarantee the "survives beyond ROS" property doesn't
+  # bit-rot. rmw_robotops never needed this — the SDK core does.
+  cmake-standalone:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake g++ ninja-build
+
+      - name: Configure (standalone, no ROS)
+        run: cmake -B build -S . -G Ninja -DROBOTOPS_TRACE_STANDALONE=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run standalone smoke check
+        run: ./build/robotops_trace_version_check
