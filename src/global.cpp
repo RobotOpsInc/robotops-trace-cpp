@@ -96,7 +96,7 @@ void apply_env(Config & config) noexcept
   if (const char * value = env_or_null("ROBOTOPS_TRACE_SCHEDULE_DELAY_MS")) {
     config.schedule_delay =
       std::chrono::milliseconds(static_cast<std::chrono::milliseconds::rep>(
-        parse_size(value, static_cast<std::size_t>(config.schedule_delay.count()))));
+          parse_size(value, static_cast<std::size_t>(config.schedule_delay.count()))));
   }
 }
 

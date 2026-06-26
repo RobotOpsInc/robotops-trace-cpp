@@ -111,7 +111,7 @@ std::size_t BatchProcessor::dropped_count() const noexcept
 void BatchProcessor::run() noexcept
 {
   std::unique_lock<std::mutex> lock(mutex_);
-  for (;;) {
+  for (;; ) {
     work_cv_.wait_for(
       lock, schedule_delay_,
       [&] {return stop_ || !queue_.empty() || flush_requested_ > flush_completed_;});

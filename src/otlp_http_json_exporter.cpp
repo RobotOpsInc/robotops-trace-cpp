@@ -130,13 +130,13 @@ void append_any_value(std::string & out, const AttributeValue & value)
       out += "\"}";
       break;
     case AttributeValue::Type::Double: {
-      out += "{\"doubleValue\":";
-      char buf[32];
-      std::snprintf(buf, sizeof(buf), "%.17g", value.double_value());
-      out += buf;
-      out += "}";
-      break;
-    }
+        out += "{\"doubleValue\":";
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.17g", value.double_value());
+        out += buf;
+        out += "}";
+        break;
+      }
   }
 }
 

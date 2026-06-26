@@ -199,9 +199,9 @@ TEST_CASE(async_context_carry_across_threads)
   }
 
   std::thread worker([&] {
-    robotops::ScopedContext scope(captured);
-    robotops::SpanGuard child("carry_child");
-  });
+      robotops::ScopedContext scope(captured);
+      robotops::SpanGuard child("carry_child");
+    });
   worker.join();
   CHECK(robotops::force_flush(kFlushTimeout));
 

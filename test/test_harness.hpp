@@ -76,32 +76,32 @@ inline int run_all()
 
 }  // namespace robotops_test
 
-#define ROBOTOPS_TEST_CONCAT_(a, b) a##b
+#define ROBOTOPS_TEST_CONCAT_(a, b) a ## b
 #define ROBOTOPS_TEST_CONCAT(a, b) ROBOTOPS_TEST_CONCAT_(a, b)
 
 // Define + auto-register a test case.
-#define TEST_CASE(name)                                                       \
-  static void name();                                                         \
-  static ::robotops_test::Registrar ROBOTOPS_TEST_CONCAT(name, _registrar_)(  \
-    #name, &name);                                                            \
+#define TEST_CASE(name) \
+  static void name(); \
+  static ::robotops_test::Registrar ROBOTOPS_TEST_CONCAT(name, _registrar_)( \
+    #name, &name); \
   static void name()
 
-#define CHECK(cond)                                                           \
-  do {                                                                        \
-    if (!(cond)) {                                                            \
-      ++::robotops_test::current_failures();                                  \
-      std::printf("    CHECK failed: %s\n      at %s:%d\n",                    \
-        #cond, __FILE__, __LINE__);                                           \
-    }                                                                         \
+#define CHECK(cond) \
+  do { \
+    if (!(cond)) { \
+      ++::robotops_test::current_failures(); \
+      std::printf("    CHECK failed: %s\n      at %s:%d\n", \
+        #cond, __FILE__, __LINE__); \
+    } \
   } while (0)
 
-#define CHECK_EQ(a, b)                                                        \
-  do {                                                                        \
-    if (!((a) == (b))) {                                                      \
-      ++::robotops_test::current_failures();                                  \
-      std::printf("    CHECK_EQ failed: %s == %s\n      at %s:%d\n",          \
-        #a, #b, __FILE__, __LINE__);                                          \
-    }                                                                         \
+#define CHECK_EQ(a, b) \
+  do { \
+    if (!((a) == (b))) { \
+      ++::robotops_test::current_failures(); \
+      std::printf("    CHECK_EQ failed: %s == %s\n      at %s:%d\n", \
+        #a, #b, __FILE__, __LINE__); \
+    } \
   } while (0)
 
 #endif  // TEST_HARNESS_HPP_

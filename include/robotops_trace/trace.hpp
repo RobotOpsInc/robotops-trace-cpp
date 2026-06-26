@@ -32,7 +32,7 @@
 #include "robotops_trace/w3c.hpp"        // traceparent inject/extract
 
 /// Concatenation helpers so ROBOTOPS_TRACE() can mint a unique guard variable.
-#define ROBOTOPS_TRACE_CONCAT_(a, b) a##b
+#define ROBOTOPS_TRACE_CONCAT_(a, b) a ## b
 #define ROBOTOPS_TRACE_CONCAT(a, b) ROBOTOPS_TRACE_CONCAT_(a, b)
 
 /// \brief Open an RAII span for the enclosing scope.
