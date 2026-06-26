@@ -2,6 +2,23 @@
 Changelog for package robotops_trace_cpp
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+
+* Env-default auto-init via ``LD_PRELOAD`` (ROB-421). A new small, separate
+  shared library ``librobotops_trace_cpp_autoinit.so`` (target
+  ``robotops_trace_cpp_autoinit``) carries an ``__attribute__((constructor))``
+  that calls ``robotops::init()`` on load — the Datadog ``-javaagent`` model:
+  set ``LD_PRELOAD`` once in the launch env / systemd unit and every node
+  auto-initializes tracing with zero per-node code. Presence in ``LD_PRELOAD``
+  is the opt-in; ``ROBOTOPS_TRACE_AUTOINIT=0`` (or the ``ROBOTOPS_TRACE_ENABLED=0``
+  kill switch) suppresses it at runtime. Explicit ``robotops::init()`` remains the
+  override and stays idempotent with auto-init. The shim depends ONLY on the core
+  (no ROS, no extra deps) and is ``noexcept``/best-effort so a failed init can
+  never crash the host. Built + installed to ``lib/`` on both the ament and
+  standalone paths; a standalone preload probe (``test/autoinit_probe.cpp``) plus
+  two ctests assert the shim activates the tracer and honors the opt-out.
+
 0.1.0 (2026-06-26)
 -------------------
 

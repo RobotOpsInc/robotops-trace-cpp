@@ -60,7 +60,41 @@ int main()
 }
 ```
 
-In the env-default auto-init model (`LD_PRELOAD` constructor lib, ROB-421) you don't call `init()` yourself — it runs on load.
+### Env-default auto-init (`LD_PRELOAD`, the Datadog `-javaagent` model)
+
+For a managed fleet you don't want to touch every node's `main()`. The SDK ships
+a small companion shared library, **`librobotops_trace_cpp_autoinit.so`**, whose
+ELF constructor calls `robotops::init()` the moment it is mapped into a process.
+Set it **once** in the launch environment (a systemd unit, a launch wrapper, the
+container `ENV`) and every node in that environment auto-initializes tracing with
+**zero per-node code**:
+
+```sh
+# Set once in the launch env / systemd unit / container.
+export LD_PRELOAD=/usr/lib/librobotops_trace_cpp_autoinit.so
+export ROBOTOPS_OTLP_ENDPOINT=http://127.0.0.1:4318   # point at the local carrier
+```
+
+Presence in `LD_PRELOAD` is the **opt-in**. The constructor is `noexcept` and
+best-effort — `init()` is already `noexcept`, so a failed init can never throw or
+crash the host process. The shim depends **only** on the SDK core (no ROS, no
+extra deps), preserving the "survives beyond ROS" guarantee.
+
+**Opt out at runtime** without changing the launch config:
+
+```sh
+export ROBOTOPS_TRACE_AUTOINIT=0    # disable just the auto-init shim
+export ROBOTOPS_TRACE_ENABLED=0     # the global kill switch (also stops manual init)
+```
+
+Nodes launched **outside** the managed environment are unaffected and keep
+calling `robotops::init()` explicitly — that remains the override path, and it is
+idempotent with auto-init (a second `init()` is a logged no-op, never a
+double-init).
+
+> Built on both the ament and standalone paths; installs to `lib/`. With the apt
+> package the absolute path is `/usr/lib/<triplet>/librobotops_trace_cpp_autoinit.so`
+> (or `/opt/ros/${ROS_DISTRO}/lib/...`); use the path emitted by your install.
 
 ### Manual `SpanGuard` with attributes, status, and events
 
@@ -139,7 +173,8 @@ or kill-switch without a redeploy.
 | `ROBOTOPS_SERVICE_NAME` | `service.name` resource attribute |
 | `ROBOTOPS_OTLP_ENDPOINT` | OTLP base URL; `/v1/traces` is appended (default `http://127.0.0.1:4318`) |
 | `ROBOTOPS_TRACE_EXPORTER` | default exporter: `otlp` (OTLP/HTTP + protobuf, the default) or `console` (JSON debug sink to stdout) |
-| `ROBOTOPS_TRACE_ENABLED` | `0`/`false`/`off` hard-disables tracing (the runtime kill switch) |
+| `ROBOTOPS_TRACE_ENABLED` | `0`/`false`/`off` hard-disables tracing (the runtime kill switch); also suppresses the `LD_PRELOAD` auto-init shim |
+| `ROBOTOPS_TRACE_AUTOINIT` | `0`/`false`/`off` suppresses **only** the `LD_PRELOAD` auto-init shim (ROB-421); explicit `init()` still works |
 | `ROBOTOPS_TRACE_MAX_QUEUE` | bounded queue capacity (drop-newest when full) |
 | `ROBOTOPS_TRACE_MAX_BATCH` | max spans per export call |
 | `ROBOTOPS_TRACE_SCHEDULE_DELAY_MS` | periodic flush interval |

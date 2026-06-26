@@ -60,6 +60,11 @@ target_include_directories(${PROJECT_NAME}
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
+# Position-independent so the static-core build can still be linked into the
+# auto-init shared shim (ROB-421); a no-op when BUILD_SHARED_LIBS already makes
+# the core a PIC shared object (the ament/.deb default).
+set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # libcurl + threads are implementation details, so link them PRIVATE.
 target_link_libraries(${PROJECT_NAME}
   PRIVATE
@@ -79,6 +84,26 @@ install(
 install(
   DIRECTORY include/
   DESTINATION include
+)
+
+# ============================================================================
+# Auto-init preload shim (ROB-421) — librobotops_trace_autoinit.so
+# ============================================================================
+# A SMALL separate shared library whose ELF constructor calls robotops::init()
+# on load. Drop it into LD_PRELOAD once in the launch env (the Datadog
+# -javaagent model) and every node auto-initializes tracing with zero per-node
+# code; ROBOTOPS_TRACE_AUTOINIT=0 (or the ROBOTOPS_TRACE_ENABLED=0 kill switch)
+# opts out at runtime. It depends ONLY on the core lib — no ROS, no extra deps —
+# so the "survives beyond ROS" guarantee holds. Built + installed on BOTH the
+# ament and standalone paths (this block precedes the standalone early-return).
+add_library(${PROJECT_NAME}_autoinit SHARED src/autoinit.cpp)
+target_link_libraries(${PROJECT_NAME}_autoinit PRIVATE ${PROJECT_NAME})
+
+install(
+  TARGETS ${PROJECT_NAME}_autoinit
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
 # ============================================================================
@@ -106,6 +131,32 @@ if(ROBOTOPS_TRACE_STANDALONE)
       ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(robotops_trace_tests PRIVATE ${PROJECT_NAME})
   add_test(NAME robotops_trace_tests COMMAND robotops_trace_tests)
+
+  # ROB-421: a host probe that never calls init() itself. It links the core
+  # (for global::is_active()) and includes src/ for the internal global.hpp.
+  # Compiling + linking it proves the auto-init surface stays buildable on the
+  # standalone path even when the preload semantics aren't exercised.
+  add_executable(robotops_trace_autoinit_probe test/autoinit_probe.cpp)
+  target_include_directories(robotops_trace_autoinit_probe
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(robotops_trace_autoinit_probe PRIVATE ${PROJECT_NAME})
+
+  # The LD_PRELOAD round-trip only shares the global tracer state across the
+  # shim/probe boundary when the core is SHARED, so gate the preload ctests on
+  # BUILD_SHARED_LIBS (configure with -DBUILD_SHARED_LIBS=ON to run them).
+  if(BUILD_SHARED_LIBS)
+    add_test(NAME robotops_trace_autoinit_preload
+      COMMAND robotops_trace_autoinit_probe)
+    set_tests_properties(robotops_trace_autoinit_preload PROPERTIES
+      ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:${PROJECT_NAME}_autoinit>"
+      PASS_REGULAR_EXPRESSION "active=1")
+
+    add_test(NAME robotops_trace_autoinit_optout
+      COMMAND robotops_trace_autoinit_probe)
+    set_tests_properties(robotops_trace_autoinit_optout PROPERTIES
+      ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:${PROJECT_NAME}_autoinit>;ROBOTOPS_TRACE_AUTOINIT=0"
+      PASS_REGULAR_EXPRESSION "active=0")
+  endif()
 
   return()
 endif()
