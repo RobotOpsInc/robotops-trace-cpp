@@ -163,6 +163,35 @@ auto spans = mem->spans();                // inspect exported SpanData
 robotops::shutdown();
 ```
 
+## Zero-robot-impact guarantee
+
+Tracing is observability for robots, and a robot must keep moving even when its
+telemetry is broken. The SDK core upholds a hard **Zero-Robot-Impact Invariant**
+(ROB-418): a tracing failure must never crash, throw into, or **block** the host
+process. Concretely:
+
+- **Export is async and never back-pressures the caller.** Closing a span is a
+  non-blocking enqueue onto a **bounded** queue; a single background thread drains
+  it in batches. When the queue is full, the span is **dropped and counted**
+  (drop-when-full) — the robot's hot path is never blocked waiting for export.
+- **No lock is held across network I/O.** The worker swaps a batch *out* of the
+  queue under the lock, **releases** the lock, *then* POSTs. A wedged or slow agent
+  cannot stall callers trying to enqueue.
+- **Every network call is time-bounded.** The libcurl exporter sets bounded
+  connect (1 s) and total (5 s) timeouts and `CURLOPT_NOSIGNAL`, so a dead/slow
+  agent costs at most one bounded timeout, never an unbounded hang.
+- **Best-effort, fail-quiet.** A failed export is logged at debug and the batch
+  dropped; the public API is `noexcept` and never throws into your code.
+- **Kill switch.** `ROBOTOPS_TRACE_ENABLED=0` (or an uninitialized tracer) makes
+  every operation a cheap no-op that never touches the network.
+
+This is proven empirically, not just by inspection: `test/fault_injection_test.cpp`
+points the real exporter at a black-hole endpoint (accepts the connection, never
+responds) and measures that — while the export thread is wedged in a 5 s POST —
+app threads still mint ~200k spans in ~15 ms (≈0.075 µs/enqueue), excess spans are
+dropped, and `force_flush()`/`shutdown()` return in bounded time. It runs on both
+the standalone and ament test paths (see **Building** below).
+
 ### Environment variables
 
 All `Config` fields have an env override; env always wins, so a fleet can retune

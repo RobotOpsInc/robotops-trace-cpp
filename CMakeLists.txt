@@ -124,7 +124,8 @@ if(ROBOTOPS_TRACE_STANDALONE)
   enable_testing()
   add_executable(robotops_trace_tests
     test/robotops_trace_tests.cpp
-    test/otlp_protobuf_test.cpp)
+    test/otlp_protobuf_test.cpp
+    test/fault_injection_test.cpp)
   target_include_directories(robotops_trace_tests
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test
@@ -177,7 +178,8 @@ if(BUILD_TESTING)
   # up). No gtest dependency — the harness is self-contained.
   add_executable(robotops_trace_tests
     test/robotops_trace_tests.cpp
-    test/otlp_protobuf_test.cpp)
+    test/otlp_protobuf_test.cpp
+    test/fault_injection_test.cpp)
   target_include_directories(robotops_trace_tests
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test

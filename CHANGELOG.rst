@@ -5,6 +5,20 @@ Changelog for package robotops_trace_cpp
 Forthcoming
 -----------
 
+* Empirical proof of the Zero-Robot-Impact Invariant (ROB-440 / ROB-418). A
+  fault-injection test suite (``test/fault_injection_test.cpp``) points the real
+  libcurl OTLP exporter at a **black-hole** loopback endpoint — a socket that
+  accepts the TCP connection but never reads or responds, so every POST hangs to
+  its ``CURLOPT_TIMEOUT_MS`` — and proves, with measured wall-clock, that a wedged
+  agent never reaches the host: the queue-lock is released before the POST (the
+  worker swaps a batch OUT under the lock, then exports OUTSIDE it), so span-mint +
+  enqueue stays fast and is **not** gated on the stalled export (≈0.075 µs/enqueue;
+  200k spans minted in ~15 ms while the export thread was blocked in a 5 s POST),
+  excess spans are **dropped** (bounded queue, drop-when-full), and
+  ``force_flush(timeout)`` / ``shutdown()`` return in bounded time with no infinite
+  hang. The exporter's bounded connect/total timeouts (1 s / 5 s, ``CURLOPT_NOSIGNAL``)
+  and the disabled-kill-switch no-op are asserted on the same dead-endpoint path.
+  Wired into both the standalone and ament(``BUILD_TESTING``) test runners.
 * Env-default auto-init via ``LD_PRELOAD`` (ROB-421). A new small, separate
   shared library ``librobotops_trace_cpp_autoinit.so`` (target
   ``robotops_trace_cpp_autoinit``) carries an ``__attribute__((constructor))``
