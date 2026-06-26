@@ -77,8 +77,8 @@ void append_escaped(std::string & out, const std::string & value)
       default:
         if (static_cast<unsigned char>(ch) < 0x20) {
           char buf[7];
-          std::snprintf(buf, sizeof(buf), "\\u%04x",
-            static_cast<unsigned int>(static_cast<unsigned char>(ch)));
+          const unsigned int code = static_cast<unsigned char>(ch);
+          std::snprintf(buf, sizeof(buf), "\\u%04x", code);
           out += buf;
         } else {
           out.push_back(ch);

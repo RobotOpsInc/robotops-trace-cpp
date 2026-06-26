@@ -65,8 +65,7 @@ inline int run_all()
     if (current_failures() == 0) {
       std::printf("[       OK ] %s\n", test.name.c_str());
     } else {
-      std::printf("[  FAILED  ] %s (%d check(s) failed)\n",
-        test.name.c_str(), current_failures());
+      std::printf("[  FAILED  ] %s (%d failed)\n", test.name.c_str(), current_failures());
       ++failed_cases;
     }
   }
@@ -90,8 +89,7 @@ inline int run_all()
   do { \
     if (!(cond)) { \
       ++::robotops_test::current_failures(); \
-      std::printf("    CHECK failed: %s\n      at %s:%d\n", \
-        #cond, __FILE__, __LINE__); \
+      std::printf("    CHECK failed: %s at %s:%d\n", #cond, __FILE__, __LINE__); \
     } \
   } while (0)
 
@@ -99,8 +97,7 @@ inline int run_all()
   do { \
     if (!((a) == (b))) { \
       ++::robotops_test::current_failures(); \
-      std::printf("    CHECK_EQ failed: %s == %s\n      at %s:%d\n", \
-        #a, #b, __FILE__, __LINE__); \
+      std::printf("    CHECK_EQ failed: %s == %s at %s:%d\n", #a, #b, __FILE__, __LINE__); \
     } \
   } while (0)
 

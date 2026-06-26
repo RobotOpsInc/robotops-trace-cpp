@@ -84,7 +84,13 @@ enum class StatusCode : std::uint8_t
 class AttributeValue
 {
 public:
-  enum class Type : std::uint8_t { String, Bool, Int, Double };
+  enum class Type : std::uint8_t
+  {
+    String,
+    Bool,
+    Int,
+    Double
+  };
 
   AttributeValue() noexcept
   : type_(Type::String) {}
