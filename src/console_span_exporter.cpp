@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "otlp_http_json_exporter.hpp"
-
-#include <curl/curl.h>
+#include "console_span_exporter.hpp"
 
 #include <cstdio>
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include "detail/log.hpp"
 
 namespace robotops
 {
@@ -30,23 +25,9 @@ namespace robotops
 namespace
 {
 
-std::once_flag g_curl_global_once;
-
-void ensure_curl_global() noexcept
-{
-  std::call_once(g_curl_global_once, [] {curl_global_init(CURL_GLOBAL_DEFAULT);});
-}
-
-// Normalize "host:port" / "host:port/" into a clean "<endpoint>/v1/traces".
-std::string make_traces_url(std::string endpoint)
-{
-  while (!endpoint.empty() && endpoint.back() == '/') {
-    endpoint.pop_back();
-  }
-  return endpoint + "/v1/traces";
-}
-
 // --- hand-rolled JSON helpers ------------------------------------------------
+// Repurposed from the original OTLP/HTTP-JSON exporter. The default OTLP wire is
+// now protobuf; this JSON serializer backs the debug/console sink only.
 
 void append_escaped(std::string & out, const std::string & value)
 {
@@ -165,14 +146,9 @@ void append_attributes(
   out += "]";
 }
 
-std::size_t discard_body(void * /*data*/, std::size_t size, std::size_t nmemb, void * /*user*/)
-{
-  return size * nmemb;
-}
-
 }  // namespace
 
-std::string OtlpHttpJsonExporter::serialize(
+std::string ConsoleSpanExporter::serialize(
   const Resource & resource,
   const std::vector<SpanData> & spans)
 {
@@ -265,31 +241,7 @@ std::string OtlpHttpJsonExporter::serialize(
   return out;
 }
 
-OtlpHttpJsonExporter::OtlpHttpJsonExporter(std::string endpoint)
-: traces_url_(make_traces_url(std::move(endpoint)))
-{
-  ensure_curl_global();
-  curl_ = curl_easy_init();
-  if (curl_ == nullptr) {
-    detail::log_warn("curl_easy_init failed; OTLP exporter will drop all batches");
-  }
-}
-
-OtlpHttpJsonExporter::~OtlpHttpJsonExporter()
-{
-  shutdown();
-}
-
-void OtlpHttpJsonExporter::shutdown() noexcept
-{
-  std::lock_guard<std::mutex> lock(curl_mutex_);
-  if (curl_ != nullptr) {
-    curl_easy_cleanup(static_cast<CURL *>(curl_));
-    curl_ = nullptr;
-  }
-}
-
-bool OtlpHttpJsonExporter::export_spans(
+bool ConsoleSpanExporter::export_spans(
   const Resource & resource,
   const std::vector<SpanData> & spans) noexcept
 {
@@ -298,44 +250,9 @@ bool OtlpHttpJsonExporter::export_spans(
   }
   try {
     const std::string body = serialize(resource, spans);
-
-    std::lock_guard<std::mutex> lock(curl_mutex_);
-    CURL * handle = static_cast<CURL *>(curl_);
-    if (handle == nullptr) {
-      return false;
-    }
-
-    curl_easy_reset(handle);
-
-    struct curl_slist * headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    curl_easy_setopt(handle, CURLOPT_URL, traces_url_.c_str());
-    curl_easy_setopt(handle, CURLOPT_POST, 1L);
-    curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body.c_str());
-    // Body is a null-terminated JSON string with no embedded NULs (control
-    // characters are \u-escaped), so libcurl can size it with strlen.
-    curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 1000L);
-    curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 5000L);
-    curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, &discard_body);
-
-    const CURLcode rc = curl_easy_perform(handle);
-    long status = 0;  // NOLINT(runtime/int) — libcurl's getinfo writes a long
-    if (rc == CURLE_OK) {
-      curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &status);
-    }
-    curl_slist_free_all(headers);
-
-    if (rc != CURLE_OK) {
-      detail::log_debug("OTLP POST transport error; batch dropped");
-      return false;
-    }
-    if (status < 200 || status >= 300) {
-      detail::log_debug("OTLP POST non-2xx response; batch dropped");
-      return false;
-    }
+    std::fwrite(body.data(), 1, body.size(), stdout);
+    std::fputc('\n', stdout);
+    std::fflush(stdout);
     return true;
   } catch (...) {
     return false;

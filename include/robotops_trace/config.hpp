@@ -48,7 +48,11 @@ struct Config
   std::size_t max_batch{512};
   /// env ROBOTOPS_TRACE_SCHEDULE_DELAY_MS — periodic flush interval.
   std::chrono::milliseconds schedule_delay{5000};
-  /// null => default OTLP/HTTP-JSON exporter built from `endpoint`.
+  /// env ROBOTOPS_TRACE_EXPORTER selects the default exporter when `exporter`
+  /// is null: "otlp" (default) => OTLP/HTTP + protobuf over libcurl;
+  /// "console" => the JSON debug sink (prints to stdout, no network).
+  std::string exporter_kind{"otlp"};
+  /// null => default exporter built from `endpoint` + `exporter_kind`.
   std::shared_ptr<SpanExporter> exporter;
 };
 

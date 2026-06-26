@@ -25,7 +25,8 @@
 #include "robotops_trace/config.hpp"
 #include "detail/batch_processor.hpp"
 #include "detail/log.hpp"
-#include "otlp_http_json_exporter.hpp"
+#include "console_span_exporter.hpp"
+#include "otlp_http_exporter.hpp"
 
 namespace robotops
 {
@@ -77,6 +78,9 @@ void apply_env(Config & config) noexcept
   }
   if (const char * value = env_or_null("ROBOTOPS_OTLP_ENDPOINT")) {
     config.endpoint = value;
+  }
+  if (const char * value = env_or_null("ROBOTOPS_TRACE_EXPORTER")) {
+    config.exporter_kind = value;
   }
   if (const char * value = std::getenv("ROBOTOPS_TRACE_ENABLED")) {
     // Explicit "0"/"false"/"off" is the hard kill switch.
@@ -164,7 +168,13 @@ void init(Config config) noexcept
     std::shared_ptr<SpanExporter> exporter = config.exporter;
     Resource resource = global::build_resource(config);
     if (!exporter) {
-      exporter = std::make_shared<OtlpHttpJsonExporter>(config.endpoint);
+      // Default OTLP wire is protobuf (ROB-438); "console" selects the JSON
+      // debug sink. Unknown values fall back to the protobuf exporter.
+      if (config.exporter_kind == "console") {
+        exporter = std::make_shared<ConsoleSpanExporter>();
+      } else {
+        exporter = std::make_shared<OtlpHttpExporter>(config.endpoint);
+      }
     }
 
     auto state = std::make_unique<TracerState>();
