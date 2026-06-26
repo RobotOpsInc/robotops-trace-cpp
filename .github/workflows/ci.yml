@@ -76,7 +76,10 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake g++ ninja-build
+          # libcurl backs the OTLP/HTTP exporter (the SDK core's only third-party
+          # runtime dep); the standalone path links CURL::libcurl like ament does.
+          sudo apt-get install -y --no-install-recommends \
+            cmake g++ ninja-build libcurl4-openssl-dev
 
       - name: Configure (standalone, no ROS)
         run: cmake -B build -S . -G Ninja -DROBOTOPS_TRACE_STANDALONE=ON
@@ -86,3 +89,6 @@ jobs:
 
       - name: Run standalone smoke check
         run: ./build/robotops_trace_version_check
+
+      - name: Run SDK core test suite (no ROS)
+        run: ./build/robotops_trace_tests
