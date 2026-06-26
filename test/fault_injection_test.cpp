@@ -138,6 +138,23 @@ std::int64_t ms_since(steady_clock::time_point t0)
   return duration_cast<milliseconds>(steady_clock::now() - t0).count();
 }
 
+// Thread body: hammer the processor's enqueue path `count` times. Named (rather
+// than an inline lambda) so the thread workers stay simple to read and format.
+void flood_enqueue(robotops::detail::BatchProcessor * processor, int count)
+{
+  for (int i = 0; i < count; ++i) {
+    processor->enqueue(make_span("flood"));
+  }
+}
+
+// Thread body: mint `count` RAII spans through the public SpanGuard API.
+void flood_span_guards(int count)
+{
+  for (int i = 0; i < count; ++i) {
+    robotops::SpanGuard guard("flood");  // RAII: submits on scope exit
+  }
+}
+
 }  // namespace
 
 // 1. The exporter's POST to a wedged agent is TIME-BOUNDED by the CURL timeouts,
@@ -204,11 +221,7 @@ TEST_CASE(fault_enqueue_stays_fast_while_export_stalls)
 
   const auto t0 = steady_clock::now();
   for (int t = 0; t < kThreads; ++t) {
-    threads.emplace_back([&processor] {
-        for (int i = 0; i < kPerThread; ++i) {
-          processor.enqueue(make_span("flood"));
-        }
-      });
+    threads.emplace_back(flood_enqueue, &processor, kPerThread);
   }
   for (auto & th : threads) {
     th.join();
@@ -291,11 +304,7 @@ TEST_CASE(fault_public_api_non_blocking_under_dead_agent)
 
   const auto t0 = steady_clock::now();
   for (int t = 0; t < kThreads; ++t) {
-    threads.emplace_back([] {
-        for (int i = 0; i < kPerThread; ++i) {
-          robotops::SpanGuard guard("flood");  // RAII: submits on scope exit
-        }
-      });
+    threads.emplace_back(flood_span_guards, kPerThread);
   }
   for (auto & th : threads) {
     th.join();
