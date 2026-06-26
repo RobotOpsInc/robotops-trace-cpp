@@ -12,25 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Smoke check for the standalone (plain-CMake, no-ROS) build path. Exercises
-// the public API surface so the `cmake-standalone` CI guardrail catches any
-// accidental ROS coupling at link time, not just compile time.
+#ifndef ROBOTOPS_TRACE__DETAIL__ID_GENERATOR_HPP_
+#define ROBOTOPS_TRACE__DETAIL__ID_GENERATOR_HPP_
 
-#include <cstring>
-#include <iostream>
+#include <array>
+#include <cstdint>
 
-#include "robotops_trace/trace.hpp"
-
-int main()
+namespace robotops
 {
-  robotops::init();
-  {
-    ROBOTOPS_TRACE("standalone-smoke");
-  }
-  robotops::shutdown();
+namespace detail
+{
 
-  const char * v = robotops::version();
-  std::cout << "robotops_trace_cpp version: " << v << '\n';
+/// Random 16-byte trace id. Never all-zero. Lock-free (thread_local engine).
+std::array<std::uint8_t, 16> generate_trace_id() noexcept;
 
-  return std::strcmp(v, "0.1.0") == 0 ? 0 : 1;
-}
+/// Random 8-byte span id. Never all-zero. Lock-free (thread_local engine).
+std::array<std::uint8_t, 8> generate_span_id() noexcept;
+
+}  // namespace detail
+}  // namespace robotops
+
+#endif  // ROBOTOPS_TRACE__DETAIL__ID_GENERATOR_HPP_

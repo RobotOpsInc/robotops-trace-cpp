@@ -16,6 +16,10 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- The only third-party runtime dep: libcurl backs the OTLP/HTTP exporter
+       (confined to the exporter .cpp, never a public header). rosdep key. -->
+  <depend>libcurl-dev</depend>
+
   <!-- Testing dependencies -->
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

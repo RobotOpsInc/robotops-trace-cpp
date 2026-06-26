@@ -12,15 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "robotops_trace/span.hpp"
+#ifndef ROBOTOPS_TRACE__DETAIL__LOG_HPP_
+#define ROBOTOPS_TRACE__DETAIL__LOG_HPP_
+
+#include <string_view>
 
 namespace robotops
 {
-
-const char * version() noexcept
+namespace detail
 {
-  // Keep in sync with package.xml (source of truth, bumped via the justfile).
-  return "0.1.0";
-}
 
+/// Internal best-effort logging. The SDK never throws and never spams a robot's
+/// logs: messages go to stderr only when ROBOTOPS_TRACE_DEBUG is set in the
+/// environment. Used to surface dropped batches / failed exports for debugging.
+void log_debug(std::string_view message) noexcept;
+
+/// Always-on warning (init misuse, etc.). Single line to stderr.
+void log_warn(std::string_view message) noexcept;
+
+}  // namespace detail
 }  // namespace robotops
+
+#endif  // ROBOTOPS_TRACE__DETAIL__LOG_HPP_
