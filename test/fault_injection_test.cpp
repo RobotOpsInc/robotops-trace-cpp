@@ -40,6 +40,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -132,7 +133,7 @@ robotops::SpanData make_span(const std::string & name)
   return span;
 }
 
-long long ms_since(steady_clock::time_point t0)
+std::int64_t ms_since(steady_clock::time_point t0)
 {
   return duration_cast<milliseconds>(steady_clock::now() - t0).count();
 }
@@ -157,13 +158,14 @@ TEST_CASE(fault_export_to_black_hole_is_time_bounded)
 
   const auto t0 = steady_clock::now();
   const bool ok = exporter.export_spans(resource, batch);
-  const long long elapsed = ms_since(t0);
+  const std::int64_t elapsed = ms_since(t0);
   std::printf(
-    "[fault] single export to black-hole: ok=%d, elapsed=%lld ms "
+    "[fault] single export to black-hole: ok=%d, elapsed=%" PRId64 " ms "
     "(bounded by CURLOPT_TIMEOUT_MS=5000)\n", ok ? 1 : 0, elapsed);
 
   CHECK(!ok);                  // dead endpoint => best-effort failure, not a hang
-  CHECK(elapsed < 9000);       // bounded by the 5s total timeout + generous margin
+  const bool bounded = elapsed < 9000;   // bounded by the 5s total timeout + margin
+  CHECK(bounded);
   exporter.shutdown();
 }
 
@@ -211,43 +213,48 @@ TEST_CASE(fault_enqueue_stays_fast_while_export_stalls)
   for (auto & th : threads) {
     th.join();
   }
-  const long long mint_ms = ms_since(t0);
+  const std::int64_t mint_ms = ms_since(t0);
 
   const std::size_t total = static_cast<std::size_t>(kThreads) * kPerThread;
   const std::size_t dropped = processor.dropped_count();
   const double per_enqueue_us =
     mint_ms > 0 ? (static_cast<double>(mint_ms) * 1000.0 / static_cast<double>(total)) : 0.0;
   std::printf(
-    "[fault] %zu spans minted across %d threads in %lld ms (~%.3f us/enqueue) "
+    "[fault] %zu spans minted across %d threads in %" PRId64 " ms (~%.3f us/enqueue) "
     "WHILE the export thread was wedged in a 5s POST; dropped=%zu\n",
     total, kThreads, mint_ms, per_enqueue_us, dropped);
 
   // (a) App threads were NOT blocked on the 5s export: a flood of enqueues
   //     finished in a tiny fraction of a single export timeout.
-  CHECK(mint_ms < 3000);
+  const bool mint_was_fast = mint_ms < 3000;
+  CHECK(mint_was_fast);
   // (b) Excess spans were dropped (bounded queue, drop-when-full), not blocked.
-  CHECK(dropped > 0);
-  CHECK(dropped > total - kMaxQueue - 1000);  // nearly everything dropped
+  const bool some_dropped = dropped > 0;
+  const bool nearly_all_dropped = dropped > total - kMaxQueue - 1000;
+  CHECK(some_dropped);
+  CHECK(nearly_all_dropped);
 
   // (d) force_flush against the wedged agent returns within ~its timeout.
   const auto f0 = steady_clock::now();
   const bool flushed = processor.force_flush(milliseconds(300));
-  const long long flush_ms = ms_since(f0);
+  const std::int64_t flush_ms = ms_since(f0);
   std::printf(
-    "[fault] force_flush(300ms) against wedged agent: returned=%d in %lld ms\n",
+    "[fault] force_flush(300ms) against wedged agent: returned=%d in %" PRId64 " ms\n",
     flushed ? 1 : 0, flush_ms);
-  CHECK(!flushed);              // export is hung => cannot fully drain in 300ms
-  CHECK(flush_ms < 2000);       // ...but it RETURNED, bounded by the timeout
+  CHECK(!flushed);             // export is hung => cannot fully drain in 300ms
+  const bool flush_bounded = flush_ms < 2000;   // ...but it RETURNED, bounded
+  CHECK(flush_bounded);
 
   // (d) shutdown joins the worker in bounded time: it finishes the in-flight POST
   //     and drains the residual queue in one more bounded export, then stops.
   const auto s0 = steady_clock::now();
   processor.shutdown();
-  const long long shutdown_ms = ms_since(s0);
+  const std::int64_t shutdown_ms = ms_since(s0);
   std::printf(
-    "[fault] shutdown() against wedged agent returned in %lld ms "
+    "[fault] shutdown() against wedged agent returned in %" PRId64 " ms "
     "(bounded by in-flight + one residual export)\n", shutdown_ms);
-  CHECK(shutdown_ms < 15000);  // bounded, no infinite hang
+  const bool shutdown_bounded = shutdown_ms < 15000;   // bounded, no infinite hang
+  CHECK(shutdown_bounded);
 }
 
 // 3. The same invariant via the PUBLIC API: init() pointed at a dead agent, spans
@@ -293,27 +300,31 @@ TEST_CASE(fault_public_api_non_blocking_under_dead_agent)
   for (auto & th : threads) {
     th.join();
   }
-  const long long mint_ms = ms_since(t0);
+  const std::int64_t mint_ms = ms_since(t0);
   const std::size_t total = static_cast<std::size_t>(kThreads) * kPerThread;
   std::printf(
-    "[fault] PUBLIC API: %zu SpanGuards across %d threads in %lld ms "
+    "[fault] PUBLIC API: %zu SpanGuards across %d threads in %" PRId64 " ms "
     "while the OTLP export thread was wedged on a dead agent\n",
     total, kThreads, mint_ms);
-  CHECK(mint_ms < 4000);   // not gated on the 5s export
+  const bool mint_was_fast = mint_ms < 4000;   // not gated on the 5s export
+  CHECK(mint_was_fast);
 
   const auto f0 = steady_clock::now();
   const bool flushed = robotops::force_flush(milliseconds(300));
-  const long long flush_ms = ms_since(f0);
+  const std::int64_t flush_ms = ms_since(f0);
   std::printf(
-    "[fault] PUBLIC API force_flush(300ms): returned=%d in %lld ms\n",
+    "[fault] PUBLIC API force_flush(300ms): returned=%d in %" PRId64 " ms\n",
     flushed ? 1 : 0, flush_ms);
-  CHECK(flush_ms < 2000);
+  const bool flush_bounded = flush_ms < 2000;
+  CHECK(flush_bounded);
 
   const auto s0 = steady_clock::now();
   robotops::shutdown();
-  const long long shutdown_ms = ms_since(s0);
-  std::printf("[fault] PUBLIC API shutdown() returned in %lld ms\n", shutdown_ms);
-  CHECK(shutdown_ms < 15000);
+  const std::int64_t shutdown_ms = ms_since(s0);
+  std::printf(
+    "[fault] PUBLIC API shutdown() returned in %" PRId64 " ms\n", shutdown_ms);
+  const bool shutdown_bounded = shutdown_ms < 15000;
+  CHECK(shutdown_bounded);
 }
 
 // 4. Disabled kill switch is a pure, fast no-op even with a dead endpoint
@@ -334,15 +345,17 @@ TEST_CASE(fault_disabled_is_pure_no_op_even_with_dead_endpoint)
     robotops::SpanGuard guard("noop");
     CHECK(!guard.span().valid());
   }
-  const long long elapsed = ms_since(t0);
+  const std::int64_t elapsed = ms_since(t0);
   std::printf(
-    "[fault] disabled kill switch: %d no-op SpanGuards in %lld ms\n", kSpans, elapsed);
+    "[fault] disabled kill switch: %d no-op SpanGuards in %" PRId64 " ms\n",
+    kSpans, elapsed);
 
   CHECK(!robotops::current_span().valid());
   CHECK(!robotops::current_context().valid());
   CHECK(robotops::force_flush(milliseconds(0)));   // nothing to flush => instant true
   robotops::shutdown();
-  CHECK(elapsed < 2000);   // a disabled tracer never touches the network
+  const bool noop_was_fast = elapsed < 2000;   // a disabled tracer never touches the net
+  CHECK(noop_was_fast);
 
   ::unsetenv("ROBOTOPS_TRACE_ENABLED");
 }
