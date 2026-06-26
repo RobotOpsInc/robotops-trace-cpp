@@ -86,7 +86,7 @@ bool is_zero(const std::array<std::uint8_t, 8> & id)
 // 1. version() returns "0.1.0".
 TEST_CASE(version_string)
 {
-  CHECK(std::strcmp(robotops::version(), "0.1.0") == 0);
+  CHECK_EQ(std::strcmp(robotops::version(), "0.1.0"), 0);
 }
 
 // 2. Root span mints a valid, sampled trace; parent_span_id is zero.

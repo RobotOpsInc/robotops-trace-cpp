@@ -313,7 +313,8 @@ bool OtlpHttpJsonExporter::export_spans(
     curl_easy_setopt(handle, CURLOPT_URL, traces_url_.c_str());
     curl_easy_setopt(handle, CURLOPT_POST, 1L);
     curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+    // Body is a null-terminated JSON string with no embedded NULs (control
+    // characters are \u-escaped), so libcurl can size it with strlen.
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 1000L);
     curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 5000L);
@@ -321,7 +322,7 @@ bool OtlpHttpJsonExporter::export_spans(
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, &discard_body);
 
     const CURLcode rc = curl_easy_perform(handle);
-    long status = 0;
+    long status = 0;  // NOLINT(runtime/int) — libcurl's getinfo writes a long
     if (rc == CURLE_OK) {
       curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &status);
     }

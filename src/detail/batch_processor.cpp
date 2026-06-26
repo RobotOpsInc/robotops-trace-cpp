@@ -14,6 +14,7 @@
 
 #include "detail/batch_processor.hpp"
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
