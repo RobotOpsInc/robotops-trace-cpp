@@ -99,11 +99,12 @@ TEST_CASE(otlp_protobuf_serialize_and_dump)
   // tag byte == (1 << 3) | 2 == 0x0a.
   CHECK_EQ(static_cast<unsigned char>(body[0]), 0x0au);
   // The body is protobuf, not JSON: it must NOT start with '{'.
-  CHECK(body[0] != '{');
+  const bool starts_like_json = (body[0] == '{');
+  CHECK(!starts_like_json);
 
   if (const char * out_path = std::getenv("ROBOTOPS_TRACE_PB_OUT")) {
     std::FILE * fp = std::fopen(out_path, "wb");
-    CHECK(fp != nullptr);
+    CHECK(fp);
     if (fp != nullptr) {
       const std::size_t written = std::fwrite(body.data(), 1, body.size(), fp);
       CHECK_EQ(written, body.size());
