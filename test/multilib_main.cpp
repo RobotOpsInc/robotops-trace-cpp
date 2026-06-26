@@ -92,9 +92,11 @@ int main()
   const robotops::SpanData * a = find_span(spans, "lib_a_span");
   const robotops::SpanData * b = find_span(spans, "lib_b_span");
 
-  std::printf("lib A: trace_id=%s span_id=%s\n",
+  std::printf(
+    "lib A: trace_id=%s span_id=%s\n",
     ctx_a.trace_id_hex().c_str(), ctx_a.span_id_hex().c_str());
-  std::printf("lib B: trace_id=%s span_id=%s\n",
+  std::printf(
+    "lib B: trace_id=%s span_id=%s\n",
     ctx_b.trace_id_hex().c_str(), ctx_b.span_id_hex().c_str());
 
   bool ok = true;
@@ -113,7 +115,8 @@ int main()
     fail("trace_id differs across libs (separate tracer state — STATIC core?)");
   }
   if (b != nullptr) {
-    std::printf("lib B parent_span_id=%s (expect A span_id=%s)\n",
+    std::printf(
+      "lib B parent_span_id=%s (expect A span_id=%s)\n",
       span_id_hex(b->parent_span_id).c_str(), ctx_a.span_id_hex().c_str());
     if (b->parent_span_id != ctx_a.span_id) {
       fail("lib B did not parent under lib A's span");
