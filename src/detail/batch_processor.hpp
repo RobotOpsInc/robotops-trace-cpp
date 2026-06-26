@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ROBOTOPS_TRACE__DETAIL__BATCH_PROCESSOR_HPP_
-#define ROBOTOPS_TRACE__DETAIL__BATCH_PROCESSOR_HPP_
+#ifndef DETAIL__BATCH_PROCESSOR_HPP_
+#define DETAIL__BATCH_PROCESSOR_HPP_
 
 #include <atomic>
 #include <chrono>
@@ -91,4 +91,4 @@ private:
 }  // namespace detail
 }  // namespace robotops
 
-#endif  // ROBOTOPS_TRACE__DETAIL__BATCH_PROCESSOR_HPP_
+#endif  // DETAIL__BATCH_PROCESSOR_HPP_

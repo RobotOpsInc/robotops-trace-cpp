@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ROBOTOPS_TRACE__OTLP_HTTP_JSON_EXPORTER_HPP_
-#define ROBOTOPS_TRACE__OTLP_HTTP_JSON_EXPORTER_HPP_
+#ifndef OTLP_HTTP_JSON_EXPORTER_HPP_
+#define OTLP_HTTP_JSON_EXPORTER_HPP_
 
 #include <chrono>
 #include <mutex>
@@ -56,4 +56,4 @@ private:
 
 }  // namespace robotops
 
-#endif  // ROBOTOPS_TRACE__OTLP_HTTP_JSON_EXPORTER_HPP_
+#endif  // OTLP_HTTP_JSON_EXPORTER_HPP_

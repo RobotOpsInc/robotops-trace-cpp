@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ROBOTOPS_TRACE__GLOBAL_HPP_
-#define ROBOTOPS_TRACE__GLOBAL_HPP_
+#ifndef GLOBAL_HPP_
+#define GLOBAL_HPP_
 
 #include "robotops_trace/exporter.hpp"
 
@@ -33,4 +33,4 @@ void submit(SpanData span) noexcept;
 }  // namespace global
 }  // namespace robotops
 
-#endif  // ROBOTOPS_TRACE__GLOBAL_HPP_
+#endif  // GLOBAL_HPP_

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ROBOTOPS_TRACE__TEST_HARNESS_HPP_
-#define ROBOTOPS_TRACE__TEST_HARNESS_HPP_
+#ifndef TEST_HARNESS_HPP_
+#define TEST_HARNESS_HPP_
 
 // A deliberately tiny, header-only assertion + runner harness. The standalone
 // (no-ROS) CI path has no gtest available, and we want the same test binary to
@@ -103,4 +103,4 @@ inline int run_all()
     }                                                                         \
   } while (0)
 
-#endif  // ROBOTOPS_TRACE__TEST_HARNESS_HPP_
+#endif  // TEST_HARNESS_HPP_

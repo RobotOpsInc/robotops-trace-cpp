@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ROBOTOPS_TRACE__DETAIL__LOG_HPP_
-#define ROBOTOPS_TRACE__DETAIL__LOG_HPP_
+#ifndef DETAIL__LOG_HPP_
+#define DETAIL__LOG_HPP_
 
 #include <string_view>
 
@@ -33,4 +33,4 @@ void log_warn(std::string_view message) noexcept;
 }  // namespace detail
 }  // namespace robotops
 
-#endif  // ROBOTOPS_TRACE__DETAIL__LOG_HPP_
+#endif  // DETAIL__LOG_HPP_
