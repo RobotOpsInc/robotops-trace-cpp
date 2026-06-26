@@ -12,25 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Smoke check for the standalone (plain-CMake, no-ROS) build path. Exercises
-// the public API surface so the `cmake-standalone` CI guardrail catches any
-// accidental ROS coupling at link time, not just compile time.
+#ifndef DETAIL__CLOCK_HPP_
+#define DETAIL__CLOCK_HPP_
 
-#include <cstring>
-#include <iostream>
+#include <chrono>
+#include <cstdint>
 
-#include "robotops_trace/trace.hpp"
-
-int main()
+namespace robotops
 {
-  robotops::init();
-  {
-    ROBOTOPS_TRACE("standalone-smoke");
-  }
-  robotops::shutdown();
+namespace detail
+{
 
-  const char * v = robotops::version();
-  std::cout << "robotops_trace_cpp version: " << v << '\n';
-
-  return std::strcmp(v, "0.1.0") == 0 ? 0 : 1;
+/// Wall-clock time since the Unix epoch in nanoseconds (for OTLP timestamps).
+inline std::uint64_t now_unix_nano() noexcept
+{
+  const auto since_epoch = std::chrono::system_clock::now().time_since_epoch();
+  return static_cast<std::uint64_t>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch).count());
 }
+
+}  // namespace detail
+}  // namespace robotops
+
+#endif  // DETAIL__CLOCK_HPP_

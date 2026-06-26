@@ -25,19 +25,46 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # ============================================================================
+# Third-party deps (identical in both build modes)
+# ============================================================================
+# libcurl is the ONLY new runtime dependency, and it is confined to the OTLP
+# exporter .cpp — never a public header. Threads backs the batch processor.
+find_package(CURL REQUIRED)
+find_package(Threads REQUIRED)
+
+# ============================================================================
 # Core library (identical in both build modes)
 # ============================================================================
 add_library(${PROJECT_NAME}
   src/version.cpp
+  src/span.cpp
+  src/context.cpp
+  src/w3c.cpp
+  src/exporter.cpp
+  src/global.cpp
+  src/otlp_http_json_exporter.cpp
+  src/detail/log.cpp
+  src/detail/id_generator.cpp
+  src/detail/thread_context.cpp
+  src/detail/batch_processor.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
+
+# libcurl + threads are implementation details, so link them PRIVATE.
+target_link_libraries(${PROJECT_NAME}
+  PRIVATE
+    CURL::libcurl
+    Threads::Threads
+)
 
 install(
   TARGETS ${PROJECT_NAME}
@@ -66,6 +93,15 @@ if(ROBOTOPS_TRACE_STANDALONE)
 
   install(TARGETS robotops_trace_version_check RUNTIME DESTINATION bin)
 
+  # The real SDK test suite, run via the header-only harness (no gtest on the
+  # standalone path). This is what the `cmake-standalone` CI job exercises.
+  enable_testing()
+  add_executable(robotops_trace_tests test/robotops_trace_tests.cpp)
+  target_include_directories(robotops_trace_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  target_link_libraries(robotops_trace_tests PRIVATE ${PROJECT_NAME})
+  add_test(NAME robotops_trace_tests COMMAND robotops_trace_tests)
+
   return()
 endif()
 
@@ -80,6 +116,14 @@ if(BUILD_TESTING)
   # Inc.", matching the rmw_robotops convention, so skip just that linter.
   set(ament_cmake_copyright_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # Run the same header-only test suite under ament/ctest (colcon test picks it
+  # up). No gtest dependency — the harness is self-contained.
+  add_executable(robotops_trace_tests test/robotops_trace_tests.cpp)
+  target_include_directories(robotops_trace_tests
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  target_link_libraries(robotops_trace_tests PRIVATE ${PROJECT_NAME})
+  add_test(NAME robotops_trace_tests COMMAND robotops_trace_tests)
 endif()
 
 ament_export_include_directories(include)

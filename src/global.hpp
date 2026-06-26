@@ -12,25 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Smoke check for the standalone (plain-CMake, no-ROS) build path. Exercises
-// the public API surface so the `cmake-standalone` CI guardrail catches any
-// accidental ROS coupling at link time, not just compile time.
+#ifndef GLOBAL_HPP_
+#define GLOBAL_HPP_
 
-#include <cstring>
-#include <iostream>
+#include "robotops_trace/exporter.hpp"
 
-#include "robotops_trace/trace.hpp"
-
-int main()
+namespace robotops
 {
-  robotops::init();
-  {
-    ROBOTOPS_TRACE("standalone-smoke");
-  }
-  robotops::shutdown();
+namespace global
+{
 
-  const char * v = robotops::version();
-  std::cout << "robotops_trace_cpp version: " << v << '\n';
+/// True when the tracer is initialized AND enabled. The SpanGuard hot path
+/// checks this first; when false every span operation is a cheap no-op.
+bool is_active() noexcept;
 
-  return std::strcmp(v, "0.1.0") == 0 ? 0 : 1;
-}
+/// Hand a finalized span to the background processor. No-op (span dropped) when
+/// inactive. Never throws.
+void submit(SpanData span) noexcept;
+
+}  // namespace global
+}  // namespace robotops
+
+#endif  // GLOBAL_HPP_
