@@ -42,7 +42,8 @@ add_library(${PROJECT_NAME}
   src/w3c.cpp
   src/exporter.cpp
   src/global.cpp
-  src/otlp_http_json_exporter.cpp
+  src/otlp_http_exporter.cpp
+  src/console_span_exporter.cpp
   src/detail/log.cpp
   src/detail/id_generator.cpp
   src/detail/thread_context.cpp
@@ -96,9 +97,13 @@ if(ROBOTOPS_TRACE_STANDALONE)
   # The real SDK test suite, run via the header-only harness (no gtest on the
   # standalone path). This is what the `cmake-standalone` CI job exercises.
   enable_testing()
-  add_executable(robotops_trace_tests test/robotops_trace_tests.cpp)
+  add_executable(robotops_trace_tests
+    test/robotops_trace_tests.cpp
+    test/otlp_protobuf_test.cpp)
   target_include_directories(robotops_trace_tests
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+      ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(robotops_trace_tests PRIVATE ${PROJECT_NAME})
   add_test(NAME robotops_trace_tests COMMAND robotops_trace_tests)
 
@@ -119,9 +124,13 @@ if(BUILD_TESTING)
 
   # Run the same header-only test suite under ament/ctest (colcon test picks it
   # up). No gtest dependency — the harness is self-contained.
-  add_executable(robotops_trace_tests test/robotops_trace_tests.cpp)
+  add_executable(robotops_trace_tests
+    test/robotops_trace_tests.cpp
+    test/otlp_protobuf_test.cpp)
   target_include_directories(robotops_trace_tests
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/test
+      ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_link_libraries(robotops_trace_tests PRIVATE ${PROJECT_NAME})
   add_test(NAME robotops_trace_tests COMMAND robotops_trace_tests)
 endif()

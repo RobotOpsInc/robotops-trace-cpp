@@ -12,7 +12,9 @@ spine). The implementer follows this exactly; deviations need a note in the PR.
    sourced (`-DROBOTOPS_TRACE_STANDALONE=ON`, the existing guardrail). No ROS
    includes in the core.
 3. **Export behind an interface.** `SpanExporter` is abstract; the default impl is a
-   hand-rolled **OTLP/HTTP + JSON** exporter over libcurl. Swappable.
+   hand-rolled **OTLP/HTTP** exporter over libcurl. Swappable. (ROB-438 update: the
+   default wire is now **protobuf**, hand-rolled with no protobuf lib / no otel-cpp;
+   the JSON serializer below is demoted to the `ConsoleSpanExporter` debug sink.)
 4. **Deterministic intra-process propagation via thread-local.** This is the whole
    point — parent/child nesting comes from a thread-local context stack, no wire.
 5. **Zero-robot-impact:** never throw out of public API (mark `noexcept` where
@@ -122,7 +124,8 @@ struct Config {
   std::size_t max_queue{2048};                  // env ROBOTOPS_TRACE_MAX_QUEUE
   std::size_t max_batch{512};                   // env ROBOTOPS_TRACE_MAX_BATCH
   std::chrono::milliseconds schedule_delay{5000};// env ROBOTOPS_TRACE_SCHEDULE_DELAY_MS, periodic flush
-  std::shared_ptr<class SpanExporter> exporter{};// null => default OTLP/HTTP-JSON exporter built from endpoint
+  std::string exporter_kind{"otlp"};            // ROB-438: env ROBOTOPS_TRACE_EXPORTER = otlp|console
+  std::shared_ptr<class SpanExporter> exporter{};// null => default OTLP/HTTP+protobuf exporter (or console JSON debug)
 };
 
 void init() noexcept;                           // reads env, builds default config
@@ -200,13 +203,19 @@ class InMemorySpanExporter : public SpanExporter { /* stores batches; thread-saf
   full — never block the caller). Background thread drains in batches of `max_batch`,
   calls `exporter->export_spans(resource, batch)`, and also flushes every
   `schedule_delay`. `force_flush`/`shutdown` signal + join.
-- **`src/otlp_http_json_exporter`** — implements `SpanExporter`. Serializes the batch
-  into the OTLP/JSON `ExportTraceServiceRequest` shape (below) with a **hand-rolled
-  JSON writer** (no JSON lib dep — the schema is small + fixed) and POSTs via libcurl
-  to `<endpoint>/v1/traces` with `Content-Type: application/json`. Short connect +
+- **`src/otlp_http_exporter`** (ROB-438; was `otlp_http_json_exporter`) — the default
+  `SpanExporter`. Serializes the batch into the OTLP `ExportTraceServiceRequest`
+  **protobuf** with a **hand-rolled wire writer** (varint/tag/length-delimited/fixed64
+  helpers — no protobuf lib, no otel-cpp; the schema is small + fixed) and POSTs via
+  libcurl to `<endpoint>/v1/traces` with `Content-Type: application/x-protobuf` (the
+  body has embedded NULs, so `CURLOPT_POSTFIELDSIZE` is set explicitly). Short connect +
   total timeout (e.g. 1s/5s). Reuse a single `CURL*` handle behind a mutex on the
   background thread. Non-2xx or transport error => return false (logged at debug,
   batch dropped). A single global `curl_global_init` guarded by `std::once_flag`.
+- **`src/console_span_exporter`** (ROB-438) — the debug `SpanExporter`. Reuses the
+  hand-rolled OTLP/JSON serializer (below) and prints each batch to stdout instead of
+  POSTing (no libcurl). Selected with `ROBOTOPS_TRACE_EXPORTER=console` /
+  `Config::exporter_kind`.
 - **`src/global`** — the process-wide tracer state (config, resource, processor,
   exporter) behind an atomic-initialized singleton guarded by `std::once_flag` /
   `std::mutex`. `init()` builds it; `shutdown()` tears down. When `enabled==false` or
@@ -215,7 +224,13 @@ class InMemorySpanExporter : public SpanExporter { /* stores batches; thread-saf
   `extract(string_view) -> SpanContext` (validate version 00, lengths, hex; set
   `remote=true`; invalid => invalid context).
 
-## OTLP/JSON wire format (the contract ROB-428's receiver must match)
+## OTLP wire format
+
+**ROB-438 update:** the default `/v1/traces` wire is now **OTLP protobuf**
+(`application/x-protobuf`) — that is the contract ROB-428's receiver must match
+(protobuf-only on `/v1/traces`). The hand-rolled protobuf field map lives in
+`src/otlp_http_exporter.cpp` (and is cross-verified against `opentelemetry-proto`).
+The OTLP/JSON shape below now describes only the `ConsoleSpanExporter` debug sink.
 
 POST `<endpoint>/v1/traces`, body = OTLP `ExportTraceServiceRequest` JSON:
 

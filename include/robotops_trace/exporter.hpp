@@ -28,7 +28,8 @@
 /// \file exporter.hpp
 /// \brief The closed-span record (SpanData), the SpanExporter interface, and an
 /// in-memory exporter for tests. Export is behind an abstract interface so the
-/// default OTLP/HTTP-JSON backend is swappable.
+/// default OTLP/HTTP + protobuf backend is swappable (a JSON console exporter is
+/// the bundled debug alternative).
 
 namespace robotops
 {

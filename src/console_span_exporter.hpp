@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef OTLP_HTTP_JSON_EXPORTER_HPP_
-#define OTLP_HTTP_JSON_EXPORTER_HPP_
+#ifndef CONSOLE_SPAN_EXPORTER_HPP_
+#define CONSOLE_SPAN_EXPORTER_HPP_
 
-#include <chrono>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -25,35 +23,27 @@
 namespace robotops
 {
 
-/// The default exporter: serializes a batch to the OTLP/JSON
+/// The debug exporter: serializes a batch to the OTLP/JSON
 /// ExportTraceServiceRequest shape with a hand-rolled writer (no JSON lib) and
-/// POSTs it to "<endpoint>/v1/traces" via libcurl. A single CURL handle is
-/// reused behind a mutex on the background thread. Any non-2xx / transport error
-/// is logged at debug and the batch dropped (best-effort). libcurl is confined
-/// entirely to this .cpp — it never appears in a public header.
-class OtlpHttpJsonExporter : public SpanExporter
+/// prints one request per batch to stdout instead of POSTing it. The default
+/// OTLP/HTTP wire is now protobuf (OtlpHttpExporter); this JSON path is demoted
+/// to a human-readable debug/console sink, selected with
+/// ROBOTOPS_TRACE_EXPORTER=console (or Config::exporter_kind). No libcurl.
+class ConsoleSpanExporter : public SpanExporter
 {
 public:
-  explicit OtlpHttpJsonExporter(std::string endpoint);
-  ~OtlpHttpJsonExporter() override;
+  ConsoleSpanExporter() = default;
 
   bool export_spans(
     const Resource & resource,
     const std::vector<SpanData> & spans) noexcept override;
 
-  void shutdown() noexcept override;
-
   /// Build the OTLP/JSON request body for a batch (exposed for tests).
   static std::string serialize(
     const Resource & resource,
     const std::vector<SpanData> & spans);
-
-private:
-  std::string traces_url_;
-  std::mutex curl_mutex_;
-  void * curl_{nullptr};   // CURL* (opaque to keep libcurl out of the header)
 };
 
 }  // namespace robotops
 
-#endif  // OTLP_HTTP_JSON_EXPORTER_HPP_
+#endif  // CONSOLE_SPAN_EXPORTER_HPP_

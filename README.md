@@ -2,7 +2,7 @@
 
 The **C++17 tracing SDK core** for RobotOps distributed tracing — the "SDK + carrier" model: RobotOps ships a thin tracing **SDK** you link into your nodes, and the trace data rides an OTLP **carrier** to the agent, instead of correlating all traffic passively from the middleware.
 
-> **Status: v0.1.0 (first core cut, ROB-419).** The SDK core is implemented: span machinery, thread-local context, async capture/restore, the bounded-queue batch processor, and the OTLP/HTTP-JSON exporter. The public API is consolidated under the single lowercase `robotops` namespace and is intended to be stable; integrations compile against it.
+> **Status: v0.1.0 (first core cut, ROB-419; OTLP wire unified on protobuf, ROB-438).** The SDK core is implemented: span machinery, thread-local context, async capture/restore, the bounded-queue batch processor, and the default OTLP/HTTP + protobuf exporter (plus a JSON console debug exporter). The public API is consolidated under the single lowercase `robotops` namespace and is intended to be stable; integrations compile against it.
 
 ## What it is
 
@@ -12,11 +12,15 @@ The **C++17 tracing SDK core** for RobotOps distributed tracing — the "SDK + c
 - `robotops::SpanGuard` — the underlying RAII span guard (attributes, status, events)
 - thread-local trace context with deterministic parent/child nesting (no wire format)
 - async context carry across threads: `capture_context()` + `ScopedContext`
-- a swappable `SpanExporter` interface with a default **OTLP/HTTP + JSON** exporter over libcurl
+- a swappable `SpanExporter` interface with a default **OTLP/HTTP + protobuf** exporter over libcurl (hand-rolled protobuf — no protobuf library, no otel-cpp), plus a **JSON console** debug exporter (`ROBOTOPS_TRACE_EXPORTER=console`)
 - `robotops::init()` / `robotops::shutdown()` / `robotops::force_flush()` — explicit lifecycle (the override path for env-default auto-init)
 - W3C `traceparent` `inject()` / `extract()` for cross-process propagation
 
 It is **transport-agnostic** and deliberately **buildable without ROS** (a plain-CMake fallback), so the core survives beyond any single middleware. The only third-party runtime dependency is **libcurl**, confined to the exporter implementation. ROS framework hooks (rclcpp, BehaviorTree.CPP, ros2_control, MoveIt, …) live in the separate `robotops-trace-integrations` monorepo.
+
+### Wire format & exporters
+
+The default exporter POSTs the OTLP `ExportTraceServiceRequest` to `<endpoint>/v1/traces` as **protobuf** (`Content-Type: application/x-protobuf`), unifying the OTLP wire on protobuf to match the ROB-428 receiver contract (protobuf-only on `/v1/traces`). The protobuf is **hand-rolled** — there is **no protobuf library and no opentelemetry-cpp** dependency; libcurl remains the only third-party runtime dep. For local debugging, set `ROBOTOPS_TRACE_EXPORTER=console` (or `Config::exporter_kind = "console"`) to swap in the `ConsoleSpanExporter`, which serializes each batch to OTLP/JSON and prints it to stdout instead of POSTing (no network). The `InMemorySpanExporter` remains the exporter for tests.
 
 ## Install (apt)
 
@@ -117,7 +121,7 @@ robotops::SpanGuard guard("handle_request", opts);
 auto mem = std::make_shared<robotops::InMemorySpanExporter>();
 robotops::Config cfg;
 cfg.service_name = "grasp_node";
-cfg.exporter = mem;                       // null => default OTLP/HTTP-JSON exporter
+cfg.exporter = mem;                       // null => default OTLP/HTTP + protobuf exporter
 robotops::init(cfg);
 // ... open spans ...
 robotops::force_flush(std::chrono::seconds(2));
@@ -134,6 +138,7 @@ or kill-switch without a redeploy.
 | --- | --- |
 | `ROBOTOPS_SERVICE_NAME` | `service.name` resource attribute |
 | `ROBOTOPS_OTLP_ENDPOINT` | OTLP base URL; `/v1/traces` is appended (default `http://127.0.0.1:4318`) |
+| `ROBOTOPS_TRACE_EXPORTER` | default exporter: `otlp` (OTLP/HTTP + protobuf, the default) or `console` (JSON debug sink to stdout) |
 | `ROBOTOPS_TRACE_ENABLED` | `0`/`false`/`off` hard-disables tracing (the runtime kill switch) |
 | `ROBOTOPS_TRACE_MAX_QUEUE` | bounded queue capacity (drop-newest when full) |
 | `ROBOTOPS_TRACE_MAX_BATCH` | max spans per export call |
