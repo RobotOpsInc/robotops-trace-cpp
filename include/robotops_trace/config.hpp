@@ -36,8 +36,11 @@ struct Config
 {
   /// env ROBOTOPS_SERVICE_NAME overrides.
   std::string service_name{"unknown_service"};
-  /// env ROBOTOPS_OTLP_ENDPOINT overrides; "/v1/traces" is appended.
-  std::string endpoint{"http://127.0.0.1:4318"};
+  /// env ROBOTOPS_OTLP_ENDPOINT overrides. Scheme selects the transport:
+  /// "unix:///abs/path" => OTLP/HTTP+protobuf over a Unix-domain socket (the
+  /// default; matches the Python exporter + agent receiver); "http://host:port"
+  /// => TCP loopback (the fallback). "/v1/traces" is the request path either way.
+  std::string endpoint{"unix:///run/robotops/trace.sock"};
   /// env ROBOTOPS_TRACE_ENABLED=0 hard-disables (the runtime kill switch).
   bool enabled{true};
   /// Extra resource attributes merged with service.name.

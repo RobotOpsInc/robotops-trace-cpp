@@ -22,6 +22,19 @@ It is **transport-agnostic** and deliberately **buildable without ROS** (a plain
 
 The default exporter POSTs the OTLP `ExportTraceServiceRequest` to `<endpoint>/v1/traces` as **protobuf** (`Content-Type: application/x-protobuf`), unifying the OTLP wire on protobuf to match the ROB-428 receiver contract (protobuf-only on `/v1/traces`). The protobuf is **hand-rolled** — there is **no protobuf library and no opentelemetry-cpp** dependency; libcurl remains the only third-party runtime dep. For local debugging, set `ROBOTOPS_TRACE_EXPORTER=console` (or `Config::exporter_kind = "console"`) to swap in the `ConsoleSpanExporter`, which serializes each batch to OTLP/JSON and prints it to stdout instead of POSTing (no network). The `InMemorySpanExporter` remains the exporter for tests.
 
+### Transport: Unix-domain socket (default) + TCP fallback
+
+The exporter speaks the **same OTLP/HTTP+protobuf** request (`POST /v1/traces`, `Content-Type: application/x-protobuf`) over either of two transports, selected by the **scheme** of `ROBOTOPS_OTLP_ENDPOINT` (or `Config::endpoint`):
+
+| Endpoint | Transport |
+| --- | --- |
+| `unix:///abs/path/to.sock` | OTLP/HTTP+protobuf over a **Unix-domain socket** (the **default**) |
+| `http://host:port` | OTLP/HTTP+protobuf over **TCP loopback** (the fallback) |
+
+The **default endpoint is `unix:///run/robotops/trace.sock`**, matching the RobotOps Python exporter and the local agent receiver — no port, no loopback TCP, the on-host agent owns the socket. For the UDS scheme the HTTP request itself is entirely normal; libcurl's `CURLOPT_UNIX_SOCKET_PATH` routes the POST over the socket while a dummy `http://localhost/v1/traces` authority supplies the request line and `Host`. The UDS path is measurably cheaper per batch than TCP loopback (roughly 3× faster round-trip in the bundled `transport_test`).
+
+Set `ROBOTOPS_OTLP_ENDPOINT=http://host:port` to fall back to TCP — useful inside a **container** that reaches a collector over the network rather than a bind-mounted host socket (e.g. mount `/run/robotops` into the container to keep the UDS default, or point at `http://otel-collector:4318` to use TCP). A connect failure on **either** transport (socket absent, agent down, collector unreachable) is a best-effort drop bounded by the curl timeouts — it never blocks or crashes the host (see the zero-robot-impact guarantee below).
+
 ## Install (apt)
 
 The SDK ships as a Debian package to `apt.robotops.com`. Add the repo once:
@@ -72,7 +85,8 @@ container `ENV`) and every node in that environment auto-initializes tracing wit
 ```sh
 # Set once in the launch env / systemd unit / container.
 export LD_PRELOAD=/usr/lib/librobotops_trace_cpp_autoinit.so
-export ROBOTOPS_OTLP_ENDPOINT=http://127.0.0.1:4318   # point at the local carrier
+# Default endpoint is unix:///run/robotops/trace.sock; override only to change it:
+# export ROBOTOPS_OTLP_ENDPOINT=http://127.0.0.1:4318   # TCP-loopback fallback
 ```
 
 Presence in `LD_PRELOAD` is the **opt-in**. The constructor is `noexcept` and
@@ -213,7 +227,7 @@ or kill-switch without a redeploy.
 | Variable | Effect |
 | --- | --- |
 | `ROBOTOPS_SERVICE_NAME` | `service.name` resource attribute |
-| `ROBOTOPS_OTLP_ENDPOINT` | OTLP base URL; `/v1/traces` is appended (default `http://127.0.0.1:4318`) |
+| `ROBOTOPS_OTLP_ENDPOINT` | OTLP endpoint; scheme selects transport — `unix:///abs/path` (UDS, the default `unix:///run/robotops/trace.sock`) or `http://host:port` (TCP fallback). `/v1/traces` is the request path on either |
 | `ROBOTOPS_TRACE_EXPORTER` | default exporter: `otlp` (OTLP/HTTP + protobuf, the default) or `console` (JSON debug sink to stdout) |
 | `ROBOTOPS_TRACE_ENABLED` | `0`/`false`/`off` hard-disables tracing (the runtime kill switch); also suppresses the `LD_PRELOAD` auto-init shim |
 | `ROBOTOPS_TRACE_AUTOINIT` | `0`/`false`/`off` suppresses **only** the `LD_PRELOAD` auto-init shim (ROB-421); explicit `init()` still works |
@@ -223,6 +237,9 @@ or kill-switch without a redeploy.
 | `ROBOTOPS_TRACE_DEBUG` | when set, log dropped/failed exports to stderr |
 
 ```sh
+# UDS (default) — the on-host agent owns /run/robotops/trace.sock:
+export ROBOTOPS_OTLP_ENDPOINT=unix:///run/robotops/trace.sock
+# ...or the TCP-loopback fallback:
 export ROBOTOPS_OTLP_ENDPOINT=http://127.0.0.1:4318
 ```
 
