@@ -2,8 +2,8 @@
 Changelog for package robotops_trace_cpp
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.2.0 (2026-06-26)
+-------------------
 
 * Ship the C++ core as a **shared library** (ROB-439). ``librobotops_trace_cpp``
   now builds and installs as ``librobotops_trace_cpp.so`` (``BUILD_SHARED_LIBS``
