@@ -34,6 +34,18 @@ namespace robotops
 /// OTLP wire on protobuf (ROB-438 / the ROB-428 protobuf-only /v1/traces
 /// contract); the JSON serializer is demoted to the ConsoleSpanExporter debug
 /// path.
+///
+/// Transport (ROB-441): the endpoint selects the transport by scheme.
+///   * "unix:///abs/path"  => the HTTP POST rides a Unix-domain socket. libcurl's
+///     CURLOPT_UNIX_SOCKET_PATH routes a normal HTTP request over the UDS, so we
+///     POST to a dummy authority "http://localhost/v1/traces" while the socket
+///     option does the actual routing. This is the DEFAULT (matches the Python
+///     exporter + agent receiver: unix:///run/robotops/trace.sock).
+///   * "http://host:port"  => plain TCP loopback (the fallback).
+/// Either way the request path is "/v1/traces" and Content-Type is
+/// application/x-protobuf. A UDS connect failure (socket absent / agent down)
+/// behaves exactly like a TCP connect failure: bounded by the curl timeouts,
+/// logged at debug, batch dropped — never blocks or throws.
 class OtlpHttpExporter : public SpanExporter
 {
 public:
@@ -54,6 +66,10 @@ public:
 
 private:
   std::string traces_url_;
+  // Non-empty => UDS transport; the path is set as CURLOPT_UNIX_SOCKET_PATH and
+  // traces_url_ carries the dummy "http://localhost/v1/traces" authority. Empty
+  // => plain TCP to traces_url_.
+  std::string unix_socket_path_;
   std::mutex curl_mutex_;
   void * curl_{nullptr};   // CURL* (opaque to keep libcurl out of the header)
 };

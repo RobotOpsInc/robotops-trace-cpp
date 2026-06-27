@@ -47,6 +47,26 @@ std::string make_traces_url(std::string endpoint)
   return endpoint + "/v1/traces";
 }
 
+constexpr char kUnixScheme[] = "unix://";
+
+// Parse the configured endpoint into (traces_url, unix_socket_path) (ROB-441).
+//   "unix:///abs/path" => UDS: socket path = "/abs/path", and the HTTP request
+//     uses a dummy "http://localhost/v1/traces" authority while libcurl's
+//     CURLOPT_UNIX_SOCKET_PATH routes the POST over the socket.
+//   anything else (e.g. "http://host:port") => TCP: socket path empty,
+//     traces_url = "<endpoint>/v1/traces".
+// The scheme parsing mirrors the Python exporter + the agent receiver contract.
+std::pair<std::string, std::string> parse_endpoint(const std::string & endpoint)
+{
+  const std::size_t prefix = std::strlen(kUnixScheme);
+  if (endpoint.compare(0, prefix, kUnixScheme) == 0) {
+    // Everything after "unix://" is the (absolute) socket path; for the
+    // canonical "unix:///run/..." form this keeps the leading '/'.
+    return {std::string("http://localhost/v1/traces"), endpoint.substr(prefix)};
+  }
+  return {make_traces_url(endpoint), std::string()};
+}
+
 bool all_zero(const std::uint8_t * bytes, std::size_t count)
 {
   for (std::size_t i = 0; i < count; ++i) {
@@ -253,8 +273,10 @@ std::string OtlpHttpExporter::serialize(
 }
 
 OtlpHttpExporter::OtlpHttpExporter(std::string endpoint)
-: traces_url_(make_traces_url(std::move(endpoint)))
 {
+  auto parsed = parse_endpoint(endpoint);
+  traces_url_ = std::move(parsed.first);
+  unix_socket_path_ = std::move(parsed.second);
   ensure_curl_global();
   curl_ = curl_easy_init();
   if (curl_ == nullptr) {
@@ -298,6 +320,14 @@ bool OtlpHttpExporter::export_spans(
     headers = curl_slist_append(headers, "Content-Type: application/x-protobuf");
 
     curl_easy_setopt(handle, CURLOPT_URL, traces_url_.c_str());
+    // ROB-441: when the endpoint was "unix://...", route this otherwise-normal
+    // HTTP POST over the Unix-domain socket. The dummy "http://localhost"
+    // authority in traces_url_ supplies the Host/path; the socket option does
+    // the real connect. A missing/dead socket fails the connect within the
+    // bounded timeouts below — identical best-effort drop to the TCP path.
+    if (!unix_socket_path_.empty()) {
+      curl_easy_setopt(handle, CURLOPT_UNIX_SOCKET_PATH, unix_socket_path_.c_str());
+    }
     curl_easy_setopt(handle, CURLOPT_POST, 1L);
     // The protobuf body contains embedded NULs, so the size MUST be explicit —
     // libcurl cannot strlen() it.

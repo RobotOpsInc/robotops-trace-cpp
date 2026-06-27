@@ -5,6 +5,25 @@ Changelog for package robotops_trace_cpp
 0.2.0 (2026-06-26)
 -------------------
 
+* Unix-domain-socket transport (default) + TCP-loopback fallback for the OTLP/HTTP
+  exporter (ROB-441). The ``ROBOTOPS_OTLP_ENDPOINT`` (``Config::endpoint``) scheme now
+  selects the transport: ``unix:///abs/path`` rides a **Unix-domain socket**,
+  ``http://host:port`` rides **TCP loopback**. The default endpoint changes from
+  ``http://127.0.0.1:4318`` to **``unix:///run/robotops/trace.sock``**, matching the
+  RobotOps Python exporter and the on-host agent receiver (no port, the agent owns the
+  socket). The HTTP request itself is unchanged on either transport — ``POST /v1/traces``
+  with ``Content-Type: application/x-protobuf``; for the UDS scheme the exporter sets
+  libcurl's ``CURLOPT_UNIX_SOCKET_PATH`` to route an otherwise-normal POST over the socket
+  while a dummy ``http://localhost/v1/traces`` authority supplies the request line + Host.
+  libcurl stays the only third-party runtime dependency. A new ``test/transport_test.cpp``
+  stands up throwaway in-process HTTP servers — one bound to a temp AF_UNIX ``.sock``, one
+  to a loopback AF_INET port — and proves a REAL round-trip: the server receives the
+  **exact** serialized protobuf bytes with request line ``POST /v1/traces HTTP/1.1`` and
+  ``Content-Type: application/x-protobuf`` over both transports, the measured per-batch
+  round-trip is ~3× cheaper over UDS than TCP loopback, and a **socket-absent** UDS
+  endpoint is a best-effort drop bounded by the curl timeouts (no hang, no throw) —
+  preserving the Zero-Robot-Impact Invariant identically to the TCP dead-agent path
+  (ROB-440 / ROB-418). ``-Wall -Wextra -Wpedantic`` clean; all existing tests stay green.
 * Ship the C++ core as a **shared library** (ROB-439). ``librobotops_trace_cpp``
   now builds and installs as ``librobotops_trace_cpp.so`` (``BUILD_SHARED_LIBS``
   defaults **ON** on both the ament/.deb and standalone paths) instead of the
