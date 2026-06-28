@@ -14,6 +14,7 @@
 
 #include "console_span_exporter.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -116,6 +117,50 @@ void append_any_value(std::string & out, const AttributeValue & value)
         std::snprintf(buf, sizeof(buf), "%.17g", value.double_value());
         out += buf;
         out += "}";
+        break;
+      }
+    case AttributeValue::Type::StringArray: {
+        out += "{\"arrayValue\":{\"values\":[";
+        bool first = true;
+        for (const auto & elem : value.string_array_value()) {
+          if (!first) {out += ",";}
+          first = false;
+          append_any_value(out, AttributeValue(elem));
+        }
+        out += "]}}";
+        break;
+      }
+    case AttributeValue::Type::BoolArray: {
+        out += "{\"arrayValue\":{\"values\":[";
+        bool first = true;
+        for (const bool elem : value.bool_array_value()) {
+          if (!first) {out += ",";}
+          first = false;
+          append_any_value(out, AttributeValue(elem));
+        }
+        out += "]}}";
+        break;
+      }
+    case AttributeValue::Type::IntArray: {
+        out += "{\"arrayValue\":{\"values\":[";
+        bool first = true;
+        for (const std::int64_t elem : value.int_array_value()) {
+          if (!first) {out += ",";}
+          first = false;
+          append_any_value(out, AttributeValue(elem));
+        }
+        out += "]}}";
+        break;
+      }
+    case AttributeValue::Type::DoubleArray: {
+        out += "{\"arrayValue\":{\"values\":[";
+        bool first = true;
+        for (const double elem : value.double_array_value()) {
+          if (!first) {out += ",";}
+          first = false;
+          append_any_value(out, AttributeValue(elem));
+        }
+        out += "]}}";
         break;
       }
   }

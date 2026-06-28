@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -112,4 +113,174 @@ TEST_CASE(otlp_protobuf_serialize_and_dump)
       std::printf("    wrote %zu protobuf bytes to %s\n", body.size(), out_path);
     }
   }
+}
+
+// --- a deliberately tiny protobuf reader (ROB-444) --------------------------
+// Just enough to walk the LEN-delimited message tree and pull scalar fields so
+// the array-attribute wire (AnyValue.array_value, field 5 => ArrayValue{ repeated
+// AnyValue values=1 }) can be decode-verified IN-PROCESS, with no protobuf lib.
+namespace
+{
+
+std::uint64_t read_varint(const std::string & b, std::size_t & i)
+{
+  std::uint64_t v = 0;
+  int shift = 0;
+  while (i < b.size()) {
+    const unsigned char c = static_cast<unsigned char>(b[i++]);
+    v |= static_cast<std::uint64_t>(c & 0x7F) << shift;
+    if ((c & 0x80) == 0) {
+      break;
+    }
+    shift += 7;
+  }
+  return v;
+}
+
+// Skip a field's payload given its wire type, advancing i.
+void skip_field(const std::string & b, std::size_t & i, std::uint32_t wire_type)
+{
+  switch (wire_type) {
+    case 0: read_varint(b, i); break;                       // varint
+    case 1: i += 8; break;                                  // fixed64
+    case 5: i += 4; break;                                  // fixed32
+    case 2: {                                               // length-delimited
+        const std::uint64_t len = read_varint(b, i);
+        i += static_cast<std::size_t>(len);
+        break;
+      }
+    default: i = b.size(); break;                           // unknown => stop
+  }
+}
+
+// All length-delimited (wire type 2) payloads carrying field number `field`.
+std::vector<std::string> len_fields(const std::string & b, std::uint32_t field)
+{
+  std::vector<std::string> out;
+  std::size_t i = 0;
+  while (i < b.size()) {
+    const std::uint64_t tag = read_varint(b, i);
+    const std::uint32_t f = static_cast<std::uint32_t>(tag >> 3);
+    const std::uint32_t wt = static_cast<std::uint32_t>(tag & 0x7);
+    if (wt == 2) {
+      const std::uint64_t len = read_varint(b, i);
+      std::string payload = b.substr(i, static_cast<std::size_t>(len));
+      i += static_cast<std::size_t>(len);
+      if (f == field) {
+        out.push_back(std::move(payload));
+      }
+    } else {
+      skip_field(b, i, wt);
+    }
+  }
+  return out;
+}
+
+// All fixed64 (wire type 1) raw values carrying field number `field`.
+std::vector<std::uint64_t> fixed64_fields(const std::string & b, std::uint32_t field)
+{
+  std::vector<std::uint64_t> out;
+  std::size_t i = 0;
+  while (i < b.size()) {
+    const std::uint64_t tag = read_varint(b, i);
+    const std::uint32_t f = static_cast<std::uint32_t>(tag >> 3);
+    const std::uint32_t wt = static_cast<std::uint32_t>(tag & 0x7);
+    if (wt == 1) {
+      std::uint64_t v = 0;
+      for (int k = 0; k < 8; ++k) {
+        v |= static_cast<std::uint64_t>(static_cast<unsigned char>(b[i + k])) << (8 * k);
+      }
+      i += 8;
+      if (f == field) {
+        out.push_back(v);
+      }
+    } else {
+      skip_field(b, i, wt);
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
+// 12. (ROB-444) Array-valued attributes serialize to OTLP arrayValue. Build a
+//     span carrying a string[] and a double[] attribute, serialize to protobuf,
+//     and decode-verify the AnyValue.array_value (field 5 => ArrayValue{ repeated
+//     AnyValue values=1 }) round-trips both arrays element-for-element.
+TEST_CASE(otlp_protobuf_array_value_round_trip)
+{
+  Resource resource;
+  resource.attributes.emplace_back("service.name", "rob444-arrays");
+
+  SpanData span;
+  for (std::size_t i = 0; i < span.context.trace_id.size(); ++i) {
+    span.context.trace_id[i] = static_cast<std::uint8_t>(i + 1);
+  }
+  span.context.span_id = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+  span.name = "ros2_control::update";
+  span.kind = SpanKind::Internal;
+  span.start_unix_nano = 1700000000000000000ULL;
+  span.end_unix_nano = 1700000000100000000ULL;
+  span.attributes.emplace_back(
+    "robot.joint.name",
+    AttributeValue(std::vector<std::string>{"shoulder", "elbow", "wrist"}));
+  span.attributes.emplace_back(
+    "robot.target.position",
+    AttributeValue(std::vector<double>{0.25, -1.5, 3.0}));
+
+  const std::string body = OtlpHttpExporter::serialize(resource, {span});
+  CHECK(!body.empty());
+
+  // Walk ExportTraceServiceRequest(1) -> ResourceSpans(2) -> ScopeSpans(2) ->
+  // Span(9) -> KeyValue{ key(1), AnyValue value(2) }.
+  const auto resource_spans = len_fields(body, 1);
+  CHECK_EQ(resource_spans.size(), static_cast<std::size_t>(1));
+  const auto scope_spans = len_fields(resource_spans.at(0), 2);
+  CHECK_EQ(scope_spans.size(), static_cast<std::size_t>(1));
+  const auto spans = len_fields(scope_spans.at(0), 2);
+  CHECK_EQ(spans.size(), static_cast<std::size_t>(1));
+  const auto key_values = len_fields(spans.at(0), 9);
+  CHECK_EQ(key_values.size(), static_cast<std::size_t>(2));
+
+  bool saw_names = false;
+  bool saw_positions = false;
+  for (const auto & kv : key_values) {
+    const auto keys = len_fields(kv, 1);
+    const auto values = len_fields(kv, 2);
+    CHECK_EQ(keys.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(values.size(), static_cast<std::size_t>(1));
+    const std::string & key = keys.at(0);
+    const std::string & any_value = values.at(0);
+
+    // AnyValue.array_value (field 5) => ArrayValue; elements are AnyValue(field 1).
+    const auto array_value = len_fields(any_value, 5);
+    CHECK_EQ(array_value.size(), static_cast<std::size_t>(1));
+    const auto elements = len_fields(array_value.at(0), 1);
+
+    if (key == "robot.joint.name") {
+      saw_names = true;
+      CHECK_EQ(elements.size(), static_cast<std::size_t>(3));
+      // Each element AnyValue.string_value is field 1 (wire type 2).
+      const char * expected[] = {"shoulder", "elbow", "wrist"};
+      for (std::size_t e = 0; e < elements.size() && e < 3; ++e) {
+        const auto strs = len_fields(elements.at(e), 1);
+        CHECK_EQ(strs.size(), static_cast<std::size_t>(1));
+        CHECK_EQ(strs.at(0), std::string(expected[e]));
+      }
+    } else if (key == "robot.target.position") {
+      saw_positions = true;
+      CHECK_EQ(elements.size(), static_cast<std::size_t>(3));
+      // Each element AnyValue.double_value is field 4 (fixed64, IEEE754 LE).
+      const double expected[] = {0.25, -1.5, 3.0};
+      for (std::size_t e = 0; e < elements.size() && e < 3; ++e) {
+        const auto bits = fixed64_fields(elements.at(e), 4);
+        CHECK_EQ(bits.size(), static_cast<std::size_t>(1));
+        double d = 0.0;
+        std::memcpy(&d, &bits.at(0), sizeof(d));
+        CHECK_EQ(d, expected[e]);
+      }
+    }
+  }
+  CHECK(saw_names);
+  CHECK(saw_positions);
 }
