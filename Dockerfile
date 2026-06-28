@@ -43,8 +43,15 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install just command runner (make installation non-fatal in case of download issues)
-RUN curl -fsSL https://just.systems/install.sh | bash -s -- --to /usr/local/bin || echo "Warning: just installation failed, but continuing..."
+# Install just command runner. This MUST fail the image build immediately if the
+# download/install fails or yields no usable binary — otherwise a flaky install
+# silently "continues" and CI dies much later with `just: not found`, after a
+# broken layer has already been cached (the humble-arm64 flake on ROB-441/443).
+# Fail-hard + verify the binary is on PATH and runnable so a bad layer is never
+# cached: a clean error here triggers a clean retry instead.
+RUN curl -fsSL https://just.systems/install.sh | bash -s -- --to /usr/local/bin \
+    && command -v just \
+    && just --version
 
 # Configure RobotOps APT repository so future SDK + integration deps resolve.
 # The shared `robotops` aptly repo publishes the same package set to every

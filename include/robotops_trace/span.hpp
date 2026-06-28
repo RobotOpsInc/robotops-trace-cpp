@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 /// \file span.hpp
 /// \brief Core span identity + handle types (SpanContext, Span, SpanGuard).
@@ -76,11 +77,15 @@ enum class StatusCode : std::uint8_t
 };
 
 // ---------------------------------------------------------------------------
-// Attribute value (string | bool | int64 | double; arrays come later)
+// Attribute value (string | bool | int64 | double, plus arrays of each)
 // ---------------------------------------------------------------------------
 
 /// A tagged attribute value. Implicitly constructible from the 4 supported
-/// scalar types (plus const char*), so call sites can write `{"key", 7}` etc.
+/// scalar types (plus const char*), so call sites can write `{"key", 7}` etc.,
+/// AND from a homogeneous array of any of them (ROB-444) — `std::vector<...>` or
+/// a braced list — so semconv array keys (`robot.joint.name` string[],
+/// `robot.target.position` double[]) need no lossy comma-join. Arrays serialize
+/// to the OTLP `arrayValue` (a repeated AnyValue) on both exporters.
 class AttributeValue
 {
 public:
@@ -89,7 +94,11 @@ public:
     String,
     Bool,
     Int,
-    Double
+    Double,
+    StringArray,
+    BoolArray,
+    IntArray,
+    DoubleArray
   };
 
   AttributeValue() noexcept
@@ -109,11 +118,34 @@ public:
   AttributeValue(double value) noexcept         // NOLINT(runtime/explicit)
   : type_(Type::Double), dbl_(value) {}
 
+  // --- array variants (ROB-444) ---------------------------------------------
+  // Owning vector ctors plus braced-list conveniences so `{"a", "b"}` /
+  // `{1.0, 2.0}` flow straight through `set_attribute(key, AttributeValue)`.
+  AttributeValue(std::vector<std::string> values)            // NOLINT(runtime/explicit)
+  : type_(Type::StringArray), str_arr_(std::move(values)) {}
+  AttributeValue(std::initializer_list<std::string_view> values)  // NOLINT
+  : type_(Type::StringArray), str_arr_(values.begin(), values.end()) {}
+  AttributeValue(std::vector<bool> values)                   // NOLINT(runtime/explicit)
+  : type_(Type::BoolArray), bool_arr_(std::move(values)) {}
+  AttributeValue(std::vector<std::int64_t> values)           // NOLINT(runtime/explicit)
+  : type_(Type::IntArray), int_arr_(std::move(values)) {}
+  AttributeValue(std::initializer_list<std::int64_t> values)      // NOLINT
+  : type_(Type::IntArray), int_arr_(values) {}
+  AttributeValue(std::vector<double> values)                 // NOLINT(runtime/explicit)
+  : type_(Type::DoubleArray), dbl_arr_(std::move(values)) {}
+  AttributeValue(std::initializer_list<double> values)            // NOLINT
+  : type_(Type::DoubleArray), dbl_arr_(values) {}
+
   Type type() const noexcept {return type_;}
   const std::string & string_value() const noexcept {return str_;}
   bool bool_value() const noexcept {return bool_;}
   std::int64_t int_value() const noexcept {return int_;}
   double double_value() const noexcept {return dbl_;}
+
+  const std::vector<std::string> & string_array_value() const noexcept {return str_arr_;}
+  const std::vector<bool> & bool_array_value() const noexcept {return bool_arr_;}
+  const std::vector<std::int64_t> & int_array_value() const noexcept {return int_arr_;}
+  const std::vector<double> & double_array_value() const noexcept {return dbl_arr_;}
 
 private:
   Type type_;
@@ -121,6 +153,10 @@ private:
   bool bool_{false};
   std::int64_t int_{0};
   double dbl_{0.0};
+  std::vector<std::string> str_arr_;
+  std::vector<bool> bool_arr_;
+  std::vector<std::int64_t> int_arr_;
+  std::vector<double> dbl_arr_;
 };
 
 namespace detail

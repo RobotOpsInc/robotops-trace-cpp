@@ -142,7 +142,9 @@ void write_double_field(std::string & out, std::uint32_t field, double value)
   write_fixed64_field(out, field, bits);
 }
 
-// OTLP AnyValue: set exactly one of string(1)/bool(2)/int64(3)/double(4).
+// OTLP AnyValue: set exactly one of string(1)/bool(2)/int64(3)/double(4), or —
+// for arrays — array_value(5) => ArrayValue{ repeated AnyValue values=1 }, where
+// every element is itself an AnyValue (encoded by recursing into the scalar form).
 std::string encode_any_value(const AttributeValue & value)
 {
   std::string out;
@@ -160,6 +162,38 @@ std::string encode_any_value(const AttributeValue & value)
     case AttributeValue::Type::Double:
       write_double_field(out, 4, value.double_value());
       break;
+    case AttributeValue::Type::StringArray: {
+        std::string arr;
+        for (const auto & elem : value.string_array_value()) {
+          write_len_field(arr, 1, encode_any_value(AttributeValue(elem)));
+        }
+        write_len_field(out, 5, arr);
+        break;
+      }
+    case AttributeValue::Type::BoolArray: {
+        std::string arr;
+        for (const bool elem : value.bool_array_value()) {
+          write_len_field(arr, 1, encode_any_value(AttributeValue(elem)));
+        }
+        write_len_field(out, 5, arr);
+        break;
+      }
+    case AttributeValue::Type::IntArray: {
+        std::string arr;
+        for (const std::int64_t elem : value.int_array_value()) {
+          write_len_field(arr, 1, encode_any_value(AttributeValue(elem)));
+        }
+        write_len_field(out, 5, arr);
+        break;
+      }
+    case AttributeValue::Type::DoubleArray: {
+        std::string arr;
+        for (const double elem : value.double_array_value()) {
+          write_len_field(arr, 1, encode_any_value(AttributeValue(elem)));
+        }
+        write_len_field(out, 5, arr);
+        break;
+      }
   }
   return out;
 }

@@ -2,6 +2,47 @@
 Changelog for package robotops_trace_cpp
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.4.0 (2026-06-28)
+-------------------
+
+* Array-valued ``AttributeValue`` (ROB-444). The core attribute type
+  (``include/robotops_trace/span.hpp``) was scalar-only
+  (string/bool/int64/double); it now also carries homogeneous **arrays** of each
+  — ``Type::{StringArray,BoolArray,IntArray,DoubleArray}`` with
+  ``std::vector<std::string>`` / ``std::vector<bool>`` /
+  ``std::vector<std::int64_t>`` / ``std::vector<double>`` storage, owning-vector
+  ctors plus braced-list conveniences (``{"a", "b"}`` / ``{1.0, 2.0}`` flow
+  straight through ``set_attribute(key, AttributeValue)``), and matching
+  ``*_array_value()`` accessors. **Why:** semconv array keys
+  (``robot.joint.name`` string[], ``robot.target.position`` double[]) could not
+  be represented, so the ros2_control integration had to lossily comma-join joint
+  names. Arrays serialize to the canonical OTLP ``arrayValue`` — AnyValue field 5
+  => ``ArrayValue { repeated AnyValue values = 1 }`` — in **both** exporters: the
+  hand-rolled protobuf wire writer (``src/otlp_http_exporter.cpp``, each element
+  recursing into the existing scalar AnyValue encoding) and the console/JSON debug
+  sink (``src/console_span_exporter.cpp``, ``{"arrayValue":{"values":[...]}}``).
+  ``Span`` / ``DetachedSpan`` / ``SpanGuard`` ``set_attribute`` are unchanged —
+  the array ctors flow through the existing ``AttributeValue`` overload — and
+  ``SpanData`` carries the array values end-to-end with no schema change. New
+  tests prove string[]/bool[]/int[]/double[] attributes set on a live span survive
+  into the exported ``SpanData`` with element types + values intact, and a small
+  in-process protobuf reader decode-verifies the ``arrayValue`` wire
+  element-for-element (cross-checked out-of-band against the canonical
+  ``opentelemetry-proto`` decoder, the ROB-438 pattern). ``-Wall -Wextra
+  -Wpedantic`` clean; the standalone (libcurl) suite + the full suite stay green.
+  This unblocks real string[]/double[] semconv attributes for the ros2_control /
+  MoveIt integrations (no more comma-join).
+* Harden the ``Dockerfile`` ``just`` install against the recurring arm64 CI flake
+  (ROB-444). The install was ``curl ... | bash ... || echo "Warning: just
+  installation failed, but continuing..."`` — so a flaky download SILENTLY
+  continued and the build cached a broken layer, then CI died much later with
+  ``just: not found`` (the humble-arm64 flake on ROB-441/443). The ``|| echo
+  continuing`` is dropped and the step now fails **hard** and **verifies** the
+  binary: ``... | bash -s -- --to /usr/local/bin && command -v just && just
+  --version``. A failed or empty install now fails the image build immediately
+  with a clear error (and never caches a broken layer), so the retry is clean. The
+  install method is otherwise unchanged.
+
 0.3.0 (2026-06-27)
 -------------------
 

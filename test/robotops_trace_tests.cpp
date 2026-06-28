@@ -271,6 +271,83 @@ TEST_CASE(attributes_status_events_survive_export)
   robotops::shutdown();
 }
 
+// 7b. (ROB-444) Array-valued attributes set on a live span survive into the
+//     exported SpanData with their element types + values intact — the case the
+//     ros2_control integration needed (joint names as a real string[], target
+//     positions as a real double[], no lossy comma-join).
+TEST_CASE(array_attributes_survive_export)
+{
+  using robotops::AttributeValue;
+  auto mem = init_in_memory();
+  {
+    robotops::SpanGuard g("arrays");
+    auto span = g.span();
+    // Owning-vector form...
+    span.set_attribute(
+      "robot.joint.name", std::vector<std::string>{"shoulder", "elbow", "wrist"});
+    // ...and the braced-list convenience form (must resolve to a string[]).
+    span.set_attribute("robot.joint.alias", AttributeValue({"j0", "j1"}));
+    span.set_attribute(
+      "robot.target.position", std::vector<double>{0.25, -1.5, 3.0});
+    span.set_attribute(
+      "robot.joint.index", std::vector<std::int64_t>{0, 1, 2, 3});
+    span.set_attribute("robot.joint.enabled", std::vector<bool>{true, false, true});
+  }
+  CHECK(robotops::force_flush(kFlushTimeout));
+
+  const auto spans = mem->spans();
+  const SpanData * s = find_span(spans, "arrays");
+  CHECK(s != nullptr);
+  if (s != nullptr) {
+    CHECK_EQ(s->attributes.size(), static_cast<std::size_t>(5));
+    bool ok_names = false;
+    bool ok_alias = false;
+    bool ok_pos = false;
+    bool ok_index = false;
+    bool ok_enabled = false;
+    for (const auto & attr : s->attributes) {
+      if (attr.first == "robot.joint.name") {
+        ok_names = true;
+        CHECK_EQ(attr.second.type(), AttributeValue::Type::StringArray);
+        const auto & v = attr.second.string_array_value();
+        CHECK_EQ(v.size(), static_cast<std::size_t>(3));
+        if (v.size() == 3) {
+          CHECK_EQ(v[0], std::string("shoulder"));
+          CHECK_EQ(v[2], std::string("wrist"));
+        }
+      } else if (attr.first == "robot.joint.alias") {
+        ok_alias = true;
+        CHECK_EQ(attr.second.type(), AttributeValue::Type::StringArray);
+        CHECK_EQ(attr.second.string_array_value().size(), static_cast<std::size_t>(2));
+      } else if (attr.first == "robot.target.position") {
+        ok_pos = true;
+        CHECK_EQ(attr.second.type(), AttributeValue::Type::DoubleArray);
+        const auto & v = attr.second.double_array_value();
+        CHECK_EQ(v.size(), static_cast<std::size_t>(3));
+        if (v.size() == 3) {
+          CHECK_EQ(v[1], -1.5);
+        }
+      } else if (attr.first == "robot.joint.index") {
+        ok_index = true;
+        CHECK_EQ(attr.second.type(), AttributeValue::Type::IntArray);
+        CHECK_EQ(attr.second.int_array_value().size(), static_cast<std::size_t>(4));
+      } else if (attr.first == "robot.joint.enabled") {
+        ok_enabled = true;
+        CHECK_EQ(attr.second.type(), AttributeValue::Type::BoolArray);
+        const auto & v = attr.second.bool_array_value();
+        CHECK_EQ(v.size(), static_cast<std::size_t>(3));
+        if (v.size() == 3) {
+          CHECK(v[0]);
+          CHECK(!v[1]);
+          CHECK(v[2]);
+        }
+      }
+    }
+    CHECK(ok_names && ok_alias && ok_pos && ok_index && ok_enabled);
+  }
+  robotops::shutdown();
+}
+
 // 8. W3C round-trip: inject(ctx) then extract() yields equal ids/flags,
 //    remote=true.
 TEST_CASE(w3c_traceparent_round_trip)
