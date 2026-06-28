@@ -2,6 +2,40 @@
 Changelog for package robotops_trace_cpp
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.3.0 (2026-06-27)
+-------------------
+
+* Detached (non-RAII) span API for spans held open ACROSS async boundaries
+  (ROB-443). Adds ``robotops::start_detached_span(name, SpanOptions = {})``
+  returning an owning, movable ``robotops::DetachedSpan`` handle
+  (``set_attribute`` / ``add_event`` / ``set_status`` / ``context()`` / ``span()``
+  + an explicit ``end()``, with end-on-destruct as a safety net). The new
+  primitive sits ALONGSIDE the existing RAII ``SpanGuard`` whose behavior is
+  unchanged. **Why** (ROB-424): the only span primitive was the RAII
+  ``SpanGuard``, which on construct/destruct pushes/pops the thread-local
+  current-context. Integrations that hold a span open across async boundaries and
+  set parentage EXPLICITLY (BehaviorTree.CPP now; MoveIt + ros2_control next)
+  don't want that coupling — a held-open span leaves the worker thread's
+  current-context pointing at a mid-execution node, so an unrelated span opened on
+  that thread between async steps could mis-nest. **Key invariant:** opening *or*
+  ending a ``DetachedSpan`` NEVER modifies the thread-local current-context stack
+  — ``current_span()`` / ``current_context()`` on the calling thread are
+  untouched (proven by ``test/detached_span_test.cpp``). It still mints a real
+  span (trace_id/span_id; parent from ``SpanOptions.parent`` if valid, else the
+  thread-local current context AT OPEN TIME, else a new root) and on ``end()``
+  finalizes → enqueues to the exporter through the SAME span-record +
+  batch-processor + exporter plumbing as ``SpanGuard`` — only the thread-local
+  push/pop is omitted. ``noexcept`` / best-effort / no-op when disabled, like the
+  rest of the public API. New tests prove: a detached open does not change the
+  calling thread's current context (with and without an active ``SpanGuard``); an
+  explicit ``SpanOptions.parent`` nests correctly; a detached span with no
+  explicit parent picks up the current context as parent but does not itself
+  become current; and attributes/status/events survive to the exported
+  ``SpanData`` with idempotent ``end()`` (double-end is safe) and a disabled-SDK
+  no-op. ``-Wall -Wextra -Wpedantic`` clean; all existing tests stay green. This
+  is the recommended primitive for held-across-async spans and unblocks clean
+  MoveIt / ros2_control integration.
+
 0.2.0 (2026-06-26)
 -------------------
 

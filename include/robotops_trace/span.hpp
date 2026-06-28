@@ -153,6 +153,7 @@ private:
   detail::SpanRecord * record_{nullptr};
 
   friend class SpanGuard;
+  friend class DetachedSpan;
   friend Span current_span() noexcept;
 };
 
@@ -190,6 +191,74 @@ private:
 
   detail::SpanRecord * record_{nullptr};
 };
+
+// ---------------------------------------------------------------------------
+// Detached (non-RAII) span — for spans held open ACROSS async boundaries
+// ---------------------------------------------------------------------------
+
+/// An owning, movable handle to a span that is **decoupled from the thread-local
+/// current-context stack**. Unlike SpanGuard, opening *or* ending a DetachedSpan
+/// NEVER pushes/pops the thread-local current context — the calling thread's
+/// `current_span()` / `current_context()` are left untouched. Its parent is
+/// resolved EXPLICITLY from `SpanOptions.parent`, or — when none is given — from
+/// the thread-local current context captured AT OPEN TIME (a snapshot; the span
+/// still does not become current). The caller ends it explicitly via `end()`;
+/// the destructor ends it as a safety net. Move-only. Never throws.
+///
+/// This is the recommended primitive for spans held open across async boundaries
+/// with explicit parentage (BehaviorTree.CPP, MoveIt, ros2_control). The RAII
+/// SpanGuard, by contrast, leaves the worker thread's current-context pointing at
+/// a mid-execution node for the whole hold, so an unrelated span opened on that
+/// thread between async steps would mis-nest — which is exactly what a detached
+/// span avoids.
+class DetachedSpan
+{
+public:
+  /// An empty (invalid) detached span. All operations on it are no-ops.
+  DetachedSpan() noexcept = default;
+  ~DetachedSpan();
+
+  DetachedSpan(DetachedSpan &&) noexcept;
+  DetachedSpan & operator=(DetachedSpan &&) noexcept;
+  DetachedSpan(const DetachedSpan &) = delete;
+  DetachedSpan & operator=(const DetachedSpan &) = delete;
+
+  bool valid() const noexcept;
+  const SpanContext & context() const noexcept;
+
+  /// Non-owning handle for setting attributes/status/events (same as the ones
+  /// forwarded below; provided for parity with SpanGuard::span()).
+  Span span() const noexcept;
+
+  void set_attribute(std::string_view key, AttributeValue value) noexcept;
+  void add_event(std::string_view name) noexcept;
+  void add_event(
+    std::string_view name,
+    std::initializer_list<std::pair<std::string_view, AttributeValue>> attrs) noexcept;
+  void set_status(StatusCode code, std::string_view message = {}) noexcept;
+
+  /// Finalize the span and enqueue it to the exporter, exactly like SpanGuard's
+  /// close path — but WITHOUT touching the thread-local current-context stack.
+  /// Idempotent: a second end() (or the destructor after an explicit end()) is a
+  /// cheap no-op.
+  void end() noexcept;
+
+private:
+  explicit DetachedSpan(detail::SpanRecord * record) noexcept
+  : record_(record) {}
+
+  detail::SpanRecord * record_{nullptr};
+
+  friend DetachedSpan start_detached_span(std::string_view, SpanOptions) noexcept;
+};
+
+/// Open a detached span and return an owning handle. Mints a real span
+/// (trace_id/span_id; parent from `opts.parent` if valid, else the thread-local
+/// current context at open time, else a new root) and records into the same
+/// span-record + batch-processor + exporter plumbing as SpanGuard — but does
+/// **not** push the thread-local current-context. Returns an invalid handle when
+/// the tracer is disabled / not initialized. Never throws.
+DetachedSpan start_detached_span(std::string_view name, SpanOptions opts = {}) noexcept;
 
 }  // namespace robotops
 
