@@ -146,7 +146,8 @@ if(ROBOTOPS_TRACE_STANDALONE)
     test/robotops_trace_tests.cpp
     test/otlp_protobuf_test.cpp
     test/fault_injection_test.cpp
-    test/transport_test.cpp)
+    test/transport_test.cpp
+    test/detached_span_test.cpp)
   target_include_directories(robotops_trace_tests
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test
@@ -226,7 +227,8 @@ if(BUILD_TESTING)
     test/robotops_trace_tests.cpp
     test/otlp_protobuf_test.cpp
     test/fault_injection_test.cpp
-    test/transport_test.cpp)
+    test/transport_test.cpp
+    test/detached_span_test.cpp)
   target_include_directories(robotops_trace_tests
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/test

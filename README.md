@@ -10,6 +10,7 @@ The **C++17 tracing SDK core** for RobotOps distributed tracing — the "SDK + c
 
 - `ROBOTOPS_TRACE("name")` — drop-in RAII span macro for the enclosing scope
 - `robotops::SpanGuard` — the underlying RAII span guard (attributes, status, events)
+- `robotops::start_detached_span()` / `robotops::DetachedSpan` — a **detached, non-RAII** span for spans held open *across async boundaries* (BehaviorTree.CPP, MoveIt, ros2_control); decoupled from the thread-local current-context, ended explicitly
 - thread-local trace context with deterministic parent/child nesting (no wire format)
 - async context carry across threads: `capture_context()` + `ScopedContext`
 - a swappable `SpanExporter` interface with a default **OTLP/HTTP + protobuf** exporter over libcurl (hand-rolled protobuf — no protobuf library, no otel-cpp), plus a **JSON console** debug exporter (`ROBOTOPS_TRACE_EXPORTER=console`)
@@ -164,6 +165,44 @@ pool.submit([ctx] {
   ROBOTOPS_TRACE("async_work");                        // nests under the captured span
 });
 ```
+
+### Detached spans held across async boundaries (`start_detached_span`)
+
+`SpanGuard` is RAII: it pushes itself onto the thread-local current-context stack
+on construction and pops on destruction. That is exactly right for a span scoped
+to a function, but **wrong** for a span you hold open *across* an async boundary
+with explicit parentage — e.g. a BehaviorTree.CPP node that ticks, returns
+`RUNNING`, and is resumed on a later tick (and, next, MoveIt and ros2_control).
+A held-open `SpanGuard` leaves the worker thread's current-context pointing at a
+mid-execution node, so an **unrelated** span opened on that thread between async
+steps would mis-nest under it.
+
+`robotops::start_detached_span(name, opts)` is the primitive for that case. It
+returns an owning, movable `robotops::DetachedSpan` that you end **explicitly**,
+and — the key property — **opening or ending it never touches the thread-local
+current-context stack**: `current_span()` / `current_context()` on the calling
+thread are left completely untouched. Its parent is set explicitly via
+`SpanOptions.parent`; if none is given it snapshots the current context *at open
+time* but still does not make itself current. On `end()` it finalizes and
+enqueues through the same batch-processor + exporter plumbing as `SpanGuard`.
+
+```cpp
+// On the thread that starts the async operation:
+robotops::SpanOptions opts;
+opts.parent = &parent_ctx;                 // explicit parentage (or omit to snapshot current)
+robotops::DetachedSpan op = robotops::start_detached_span("bt.node.GraspObject", opts);
+op.set_attribute("bt.node.type", "Action");
+// ... current_span()/current_context() on this thread are UNCHANGED ...
+
+// Later, possibly on a different tick / thread, when the operation completes:
+op.set_status(robotops::StatusCode::Ok);
+op.end();                                  // finalize + enqueue; thread-local still untouched
+// (the destructor ends it as a safety net if you forget)
+```
+
+This is the **recommended primitive for spans held across async boundaries**
+(BehaviorTree.CPP, MoveIt, ros2_control). For ordinary scoped spans, keep using
+`ROBOTOPS_TRACE` / `SpanGuard`.
 
 ### Cross-process propagation (W3C `traceparent`)
 
